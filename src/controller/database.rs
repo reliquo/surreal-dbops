@@ -33,12 +33,39 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
     };
 
     // 2. Check if Namespace is ready
-    let ns_status = match ns.status {
+    let _ns_status = match ns.status {
         Some(ref status) if status.created => status,
-        _ => {
-            let err_msg = format!("Namespace {} is not ready yet", ns.name_any());
+        Some(ref status) => {
+            let err_msg = match status.error.clone() {
+                Some(err) => format!("Referenced Namespace {} is unhealthy: {}", ns.name_any(), err),
+                None => format!("Referenced Namespace {} is not ready yet", ns.name_any()),
+            };
             info!("{}", err_msg);
-            update_status(&db_resource, client, &db_namespace, false, None, None, Some(err_msg)).await?;
+            let current_status = db_resource.status.clone().unwrap_or_default();
+            update_status(
+                &db_resource,
+                client,
+                &db_namespace,
+                false,
+                current_status.applied_schema_hash,
+                current_status.applied_schema_generation,
+                Some(err_msg)
+            ).await?;
+            return Ok(Action::requeue(Duration::from_secs(10)));
+        }
+        None => {
+            let err_msg = format!("Namespace {} has no status yet", ns.name_any());
+            info!("{}", err_msg);
+            let current_status = db_resource.status.clone().unwrap_or_default();
+            update_status(
+                &db_resource,
+                client,
+                &db_namespace,
+                false,
+                current_status.applied_schema_hash,
+                current_status.applied_schema_generation,
+                Some(err_msg)
+            ).await?;
             return Ok(Action::requeue(Duration::from_secs(10)));
         }
     };
@@ -116,7 +143,16 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
         Err(e) => {
             let err_msg = format!("Failed to connect to SurrealDB endpoint {}: {}", endpoint, e);
             error!("{}", err_msg);
-            update_status(&db_resource, client, &db_namespace, false, None, None, Some(err_msg)).await?;
+            let current_status = db_resource.status.clone().unwrap_or_default();
+            update_status(
+                &db_resource,
+                client,
+                &db_namespace,
+                false,
+                current_status.applied_schema_hash,
+                current_status.applied_schema_generation,
+                Some(err_msg)
+            ).await?;
             return Ok(Action::requeue(Duration::from_secs(30)));
         }
     }

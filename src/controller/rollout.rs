@@ -21,6 +21,14 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
 
     info!("Reconciling Rollout {}/{}", rollout_namespace, rollout_name);
 
+    // 0. Skip reconciliation if rollout is already in a terminal state
+    if let Some(ref status) = rollout.status {
+        if status.phase == Some("Completed".to_string()) || status.phase == Some("Failed".to_string()) {
+            info!("Rollout {}/{} is already in terminal state ({:?}), skipping reconciliation", rollout_namespace, rollout_name, status.phase);
+            return Ok(Action::await_change());
+        }
+    }
+
     // 1. Fetch the target Schema
     let resolved_schema_ns = resolve_namespace(&rollout.spec.schema_ref, &rollout_namespace);
     let schema_api: Api<Schema> = Api::namespaced(client.clone(), &resolved_schema_ns);
@@ -59,6 +67,15 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
 
     let affected_count = affected_databases.len();
     info!("Found {} databases affected by rollout {}", affected_count, rollout_name);
+
+    // 3b. Verify health of all affected databases before proceeding. If any are not ready yet, requeue to wait.
+    for target_db in &affected_databases {
+        let db_ns = target_db.namespace().unwrap_or_default();
+        if let Err(e) = check_db_health(client, target_db, &db_ns).await {
+            info!("Rollout {} is waiting for dependent resources: {}", rollout_name, e);
+            return Ok(Action::requeue(Duration::from_secs(10)));
+        }
+    }
 
     // Get current status or start clean
     let mut status = rollout.status.clone().unwrap_or_default();
@@ -145,7 +162,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
             message: "Rollout blocked waiting for approval annotation.".to_string(),
         });
 
-        patch_status(&rollout_name, &rollout_namespace, client, &status).await?;
+        patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await?;
         info!("Rollout {} is Blocked waiting for approval", rollout_name);
         return Ok(Action::requeue(Duration::from_secs(15)));
     }
@@ -166,7 +183,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
         message: format!("Applying schema to {} databases.", affected_count),
     });
     status.phase = Some("Progressing".to_string());
-    patch_status(&rollout_name, &rollout_namespace, client, &status).await?;
+    patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await?;
 
     let concurrency = schema.spec.concurrency_limit.unwrap_or(50);
     
@@ -186,7 +203,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
 
     let completed_count = affected_count - pending_databases.len();
     status.applied_databases = completed_count;
-    patch_status(&rollout_name, &rollout_namespace, client, &status).await?;
+    patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await?;
 
     // Create a stream to process pending migrations concurrently
     let db_client_cloned = client.clone();
@@ -226,7 +243,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
             }
         }
         // Patch status progressively
-        let _ = patch_status(&rollout_name, &rollout_namespace, client, &status).await;
+        let _ = patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await;
     }
 
     // 7. Check Completion
@@ -258,7 +275,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
             reason: "Finished".to_string(),
             message: "Migration completed.".to_string(),
         });
-        patch_status(&rollout_name, &rollout_namespace, client, &status).await?;
+        patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await?;
     }
 
     Ok(Action::await_change())
@@ -270,6 +287,47 @@ pub fn error_policy(_rollout: Arc<Rollout>, error: &Error, _ctx: Arc<Context>) -
     Action::requeue(Duration::from_secs(15))
 }
 
+/// Helper function to verify health of a target database and its dependency chain (Namespace -> Instance)
+async fn check_db_health(client: &Client, db: &Database, db_namespace: &str) -> Result<()> {
+    // Check if the Database is ready
+    if let Some(ref status) = db.status {
+        if !status.created {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Database is not ready".to_string());
+            return Err(Error::InternalError(format!("Database {} is unhealthy: {}", db.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Database {} has no status yet", db.name_any())));
+    }
+
+    // Fetch and check Namespace
+    let resolved_ns_namespace = resolve_namespace(&db.spec.namespace_ref, db_namespace);
+    let ns_api: Api<Namespace> = Api::namespaced(client.clone(), &resolved_ns_namespace);
+    let ns = ns_api.get(&db.spec.namespace_ref.name).await.map_err(Error::KubeError)?;
+    if let Some(ref status) = ns.status {
+        if !status.created {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Namespace is not ready".to_string());
+            return Err(Error::InternalError(format!("Namespace {} is unhealthy: {}", ns.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Namespace {} has no status yet", ns.name_any())));
+    }
+
+    // Fetch and check Instance
+    let resolved_instance_ns = resolve_namespace(&ns.spec.instance_ref, &resolved_ns_namespace);
+    let instance_api: Api<Instance> = Api::namespaced(client.clone(), &resolved_instance_ns);
+    let instance = instance_api.get(&ns.spec.instance_ref.name).await.map_err(Error::KubeError)?;
+    if let Some(ref status) = instance.status {
+        if !status.connected {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Instance is not connected".to_string());
+            return Err(Error::InternalError(format!("Instance {} is unhealthy: {}", instance.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Instance {} has no status yet", instance.name_any())));
+    }
+
+    Ok(())
+}
+
 /// Helper function to establish connection to a specific database
 async fn get_db_client(client: &Client, db: &Database, db_namespace: &str) -> Result<surrealdb::Surreal<surrealdb::engine::any::Any>> {
     let resolved_ns_namespace = resolve_namespace(&db.spec.namespace_ref, db_namespace);
@@ -279,6 +337,36 @@ async fn get_db_client(client: &Client, db: &Database, db_namespace: &str) -> Re
     let resolved_instance_ns = resolve_namespace(&ns.spec.instance_ref, &resolved_ns_namespace);
     let instance_api: Api<Instance> = Api::namespaced(client.clone(), &resolved_instance_ns);
     let instance = instance_api.get(&ns.spec.instance_ref.name).await.map_err(Error::KubeError)?;
+
+    // Check if the Database is ready
+    if let Some(ref status) = db.status {
+        if !status.created {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Database is not ready".to_string());
+            return Err(Error::InternalError(format!("Database {} is unhealthy: {}", db.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Database {} has no status yet", db.name_any())));
+    }
+
+    // Check if the Namespace is ready
+    if let Some(ref status) = ns.status {
+        if !status.created {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Namespace is not ready".to_string());
+            return Err(Error::InternalError(format!("Namespace {} is unhealthy: {}", ns.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Namespace {} has no status yet", ns.name_any())));
+    }
+
+    // Check if the Instance is connected/ready
+    if let Some(ref status) = instance.status {
+        if !status.connected {
+            let err_msg = status.error.clone().unwrap_or_else(|| "Instance is not connected".to_string());
+            return Err(Error::InternalError(format!("Instance {} is unhealthy: {}", instance.name_any(), err_msg)));
+        }
+    } else {
+        return Err(Error::InternalError(format!("Instance {} has no status yet", instance.name_any())));
+    }
 
     let endpoint = resolve_value(client, &instance.spec.connection_string, &resolved_instance_ns).await?;
     let username = resolve_value(client, &instance.spec.username, &resolved_instance_ns).await?;
@@ -326,25 +414,33 @@ async fn apply_schema_to_db(
     Ok(())
 }
 
-/// Helper function to patch status of Rollout resource.
+/// Helper function to patch status of Rollout resource only if it has changed.
 async fn patch_status(
     name: &str,
     namespace: &str,
     client: &Client,
-    status: &RolloutStatus,
+    current_status: &Option<RolloutStatus>,
+    new_status: &RolloutStatus,
 ) -> Result<()> {
+    if Some(new_status) == current_status.as_ref() {
+        return Ok(());
+    }
     let api: Api<Rollout> = Api::namespaced(client.clone(), namespace);
     let patch = json!({
-        "status": status
+        "status": new_status
     });
     api.patch_status(name, &PatchParams::default(), &Patch::Merge(&patch)).await
         .map_err(Error::KubeError)?;
     Ok(())
 }
 
-/// Helper to upsert a condition in the condition list
-fn update_condition(conditions: &mut Vec<Condition>, new_cond: Condition) {
+/// Helper to upsert a condition in the condition list without updating the last transition time if status/reason/message didn't change.
+fn update_condition(conditions: &mut Vec<Condition>, mut new_cond: Condition) {
     if let Some(pos) = conditions.iter().position(|c| c.r#type == new_cond.r#type) {
+        let old_cond = &conditions[pos];
+        if old_cond.status == new_cond.status && old_cond.reason == new_cond.reason && old_cond.message == new_cond.message {
+            new_cond.last_transition_time = old_cond.last_transition_time.clone();
+        }
         conditions[pos] = new_cond;
     } else {
         conditions.push(new_cond);

@@ -32,6 +32,18 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
         }
     };
 
+    // 1b. Check if the referenced Instance is connected/ready
+    let is_connected = instance.status.as_ref().map(|s| s.connected).unwrap_or(false);
+    if !is_connected {
+        let err_msg = match instance.status.as_ref().and_then(|s| s.error.clone()) {
+            Some(err) => format!("Referenced Instance {} is unhealthy: {}", instance.name_any(), err),
+            None => format!("Referenced Instance {} is not connected yet", instance.name_any()),
+        };
+        error!("{}", err_msg);
+        update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+        return Ok(Action::requeue(Duration::from_secs(30)));
+    }
+
     // 2. Resolve credentials from the Instance
     let endpoint = match resolve_value(client, &instance.spec.connection_string, &resolved_instance_ns).await {
         Ok(endpoint) => endpoint,
