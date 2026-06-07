@@ -1,0 +1,62 @@
+# Default values for surreal-dbops.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/rintaun/surreal-dbops
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 443
+  targetPort: 8443
+
+webhook:
+  enabled: true
+  port: 8443
+  secretName: "surreal-dbops-webhook-tls"
+  certManager:
+    enabled: false
+    # If true, a cert-manager Certificate resource will be generated
+    generateCert: false
+    issuerRef:
+      name: "selfsigned-issuer"
+      kind: "ClusterIssuer"
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

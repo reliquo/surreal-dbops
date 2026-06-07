@@ -1,0 +1,47 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "surreal-dbops.fullname" . }}
+  labels:
+    {{- include "surreal-dbops.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s" .Release.Namespace (include "surreal-dbops.fullname" .) | quote }}
+  {{- end }}
+webhooks:
+  - name: mutate.rollouts.surrealdb.reliquo.io
+    rules:
+      - apiGroups: ["surrealdb.reliquo.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["UPDATE"]
+        resources: ["rollouts"]
+        scope: "Namespaced"
+    clientConfig:
+      service:
+        name: {{ include "surreal-dbops.fullname" . }}
+        namespace: {{ .Release.Namespace }}
+        path: "/mutate"
+        port: {{ .Values.service.port }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 10
+    failurePolicy: Fail
+---
+{{- if and .Values.webhook.certManager.enabled .Values.webhook.certManager.generateCert }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "surreal-dbops.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "surreal-dbops.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+    - {{ include "surreal-dbops.fullname" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "surreal-dbops.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    {{- toYaml .Values.webhook.certManager.issuerRef | nindent 4 }}
+  secretName: {{ .Values.webhook.secretName }}
+{{- end }}
+{{- end }}
