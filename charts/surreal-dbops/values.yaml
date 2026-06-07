@@ -2,7 +2,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/rintaun/surreal-dbops
+  repository: ghcr.io/reliquo/surreal-dbops
   pullPolicy: IfNotPresent
   tag: "latest"
 

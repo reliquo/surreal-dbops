@@ -56,13 +56,13 @@ kubectl create secret generic surrealdb-root \
   --from-literal=password=rootpassword
 
 echo "=== 4. Building and Loading Operator Image ==="
-docker build -t ghcr.io/rintaun/surreal-dbops:latest .
-kind load docker-image ghcr.io/rintaun/surreal-dbops:latest --name "${CLUSTER_NAME}"
+docker build -t ghcr.io/reliquo/surreal-dbops:latest .
+kind load docker-image ghcr.io/reliquo/surreal-dbops:latest --name "${CLUSTER_NAME}"
 
 echo "=== 5. Installing surreal-dbops Operator ==="
 helm install surreal-dbops ./charts/surreal-dbops \
   --namespace "${NAMESPACE}" \
-  --set image.repository=ghcr.io/rintaun/surreal-dbops \
+  --set image.repository=ghcr.io/reliquo/surreal-dbops \
   --set image.tag=latest \
   --set webhook.enabled=true \
   --set webhook.certManager.enabled=true \
