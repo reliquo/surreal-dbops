@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client, ResourceExt, Resource};
+use kube::api::{Patch, PatchParams};
 use kube::runtime::controller::Action;
 use serde_json::json;
 use tokio::time::Duration;
@@ -42,6 +43,23 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
         error!("{}", err_msg);
         update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
         return Ok(Action::requeue(Duration::from_secs(30)));
+    }
+
+    // 1c. Ensure Namespace has the correct OwnerReference to Instance
+    let has_owner = ns.metadata.owner_references.as_ref()
+        .map(|refs| refs.iter().any(|r| r.uid == instance.metadata.uid.as_ref().cloned().unwrap_or_default()))
+        .unwrap_or(false);
+    if !has_owner {
+        if let Some(owner_ref) = instance.controller_owner_ref(&()) {
+            let api: Api<Namespace> = Api::namespaced(client.clone(), &ns_namespace);
+            let patch = json!({
+                "metadata": {
+                    "ownerReferences": [owner_ref]
+                }
+            });
+            api.patch(&ns.name_any(), &PatchParams::default(), &Patch::Merge(&patch)).await
+                .map_err(Error::KubeError)?;
+        }
     }
 
     // 2. Resolve credentials from the Instance

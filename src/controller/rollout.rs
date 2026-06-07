@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client, ResourceExt, Resource};
 use kube::api::{ListParams, Patch, PatchParams};
 use kube::runtime::controller::Action;
 use serde_json::json;
@@ -68,18 +68,63 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
     let affected_count = affected_databases.len();
     info!("Found {} databases affected by rollout {}", affected_count, rollout_name);
 
-    // 3b. Verify health of all affected databases before proceeding. If any are not ready yet, requeue to wait.
-    for target_db in &affected_databases {
-        let db_ns = target_db.namespace().unwrap_or_default();
-        if let Err(e) = check_db_health(client, target_db, &db_ns).await {
-            info!("Rollout {} is waiting for dependent resources: {}", rollout_name, e);
-            return Ok(Action::requeue(Duration::from_secs(10)));
+    // 3a. Ensure Rollout has the correct OwnerReferences (Schema as controller, Databases as non-controllers)
+    let mut expected_owners = Vec::new();
+    if let Some(schema_owner) = schema.controller_owner_ref(&()) {
+        expected_owners.push(schema_owner);
+    }
+    for db in &affected_databases {
+        if let Some(mut db_owner) = db.controller_owner_ref(&()) {
+            db_owner.controller = Some(false);
+            db_owner.block_owner_deletion = Some(true);
+            expected_owners.push(db_owner);
         }
+    }
+    let current_owners = rollout.metadata.owner_references.clone().unwrap_or_default();
+    let mut owners_changed = current_owners.len() != expected_owners.len();
+    if !owners_changed {
+        for expected in &expected_owners {
+            if !current_owners.iter().any(|c| c.uid == expected.uid) {
+                owners_changed = true;
+                break;
+            }
+        }
+    }
+    if owners_changed {
+        let api: Api<Rollout> = Api::namespaced(client.clone(), &rollout_namespace);
+        let patch = json!({
+            "metadata": {
+                "ownerReferences": expected_owners
+            }
+        });
+        api.patch(&rollout_name, &PatchParams::default(), &Patch::Merge(&patch)).await
+            .map_err(Error::KubeError)?;
     }
 
     // Get current status or start clean
     let mut status = rollout.status.clone().unwrap_or_default();
     status.affected_databases = affected_count;
+
+    // 3b. Verify health of all affected databases before proceeding. If any are not ready yet, requeue to wait.
+    for target_db in &affected_databases {
+        let db_ns = target_db.namespace().unwrap_or_default();
+        if let Err(e) = check_db_health(client, target_db, &db_ns).await {
+            let err_msg = format!("Rollout is waiting for dependent resources: {}", e);
+            info!("{}", err_msg);
+
+            status.phase = Some("Blocked".to_string());
+            update_condition(&mut status.conditions, Condition {
+                r#type: "Progressing".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "DependencyUnhealthy".to_string(),
+                message: err_msg,
+            });
+            patch_status(&rollout_name, &rollout_namespace, client, &rollout.status, &status).await?;
+
+            return Ok(Action::requeue(Duration::from_secs(10)));
+        }
+    }
 
     if status.phase.is_none() {
         status.phase = Some("Progressing".to_string());

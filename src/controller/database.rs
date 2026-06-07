@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use kube::{Api, Client, ResourceExt};
+use kube::{Api, Client, ResourceExt, Resource};
+use kube::api::{Patch, PatchParams};
 use kube::runtime::controller::Action;
 use serde_json::json;
 use tokio::time::Duration;
@@ -69,6 +70,23 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
             return Ok(Action::requeue(Duration::from_secs(10)));
         }
     };
+
+    // 2b. Ensure Database has the correct OwnerReference to Namespace
+    let has_owner = db_resource.metadata.owner_references.as_ref()
+        .map(|refs| refs.iter().any(|r| r.uid == ns.metadata.uid.as_ref().cloned().unwrap_or_default()))
+        .unwrap_or(false);
+    if !has_owner {
+        if let Some(owner_ref) = ns.controller_owner_ref(&()) {
+            let api: Api<Database> = Api::namespaced(client.clone(), &db_namespace);
+            let patch = json!({
+                "metadata": {
+                    "ownerReferences": [owner_ref]
+                }
+            });
+            api.patch(&db_resource.name_any(), &PatchParams::default(), &Patch::Merge(&patch)).await
+                .map_err(Error::KubeError)?;
+        }
+    }
 
     // 3. Fetch the Instance from the Namespace spec
     let resolved_instance_ns = resolve_namespace(&ns.spec.instance_ref, &resolved_ns_namespace);
