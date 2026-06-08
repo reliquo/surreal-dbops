@@ -20,8 +20,8 @@ pub async fn connect_instance(
 
     let db = connect(endpoint).await?;
     db.signin(Root {
-        username,
-        password,
+        username: username.to_string(),
+        password: password.to_string(),
     }).await?;
     Ok(db)
 }

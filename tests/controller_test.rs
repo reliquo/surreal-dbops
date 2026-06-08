@@ -36,6 +36,32 @@ mod controller_tests {
     async fn setup_mock_k8s_server() -> (Client, MockState, tokio::task::JoinHandle<()>) {
         let state = MockState::default();
 
+        fn patch_metadata(val: &mut Value, patch: &Value) {
+            if let Some(patch_meta) = patch.get("metadata") {
+                if let Some(existing_meta) = val.get_mut("metadata") {
+                    if let Some(existing_obj) = existing_meta.as_object_mut() {
+                        if let Some(patch_obj) = patch_meta.as_object() {
+                            for (k, v) in patch_obj {
+                                if k == "annotations" {
+                                    if existing_obj.get("annotations").is_none() {
+                                        existing_obj.insert("annotations".to_string(), json!({}));
+                                    }
+                                    let existing_ann = existing_obj.get_mut("annotations").unwrap().as_object_mut().unwrap();
+                                    if let Some(obj) = v.as_object() {
+                                        for (ak, av) in obj {
+                                            existing_ann.insert(ak.clone(), av.clone());
+                                        }
+                                    }
+                                } else {
+                                    existing_obj.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let app = Router::new()
             // Instances
             .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/instances/:name", get(
@@ -64,6 +90,16 @@ mod controller_tests {
                     let map = s.namespaces.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
                 }
+            ).patch(
+                |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
+                    let mut map = s.namespaces.lock().unwrap();
+                    if let Some(val) = map.get_mut(&name) {
+                        patch_metadata(val, &patch);
+                        Ok(Json(val.clone()))
+                    } else {
+                        Err(axum::http::StatusCode::NOT_FOUND)
+                    }
+                }
             ))
             .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/namespaces/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
@@ -84,6 +120,16 @@ mod controller_tests {
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.databases.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
+                }
+            ).patch(
+                |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
+                    let mut map = s.databases.lock().unwrap();
+                    if let Some(val) = map.get_mut(&name) {
+                        patch_metadata(val, &patch);
+                        Ok(Json(val.clone()))
+                    } else {
+                        Err(axum::http::StatusCode::NOT_FOUND)
+                    }
                 }
             ))
             .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/databases/:name/status", patch(
@@ -168,20 +214,7 @@ mod controller_tests {
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.rollouts.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
-                        if let Some(patch_metadata) = patch.get("metadata") {
-                            if let Some(patch_ann) = patch_metadata.get("annotations") {
-                                let existing_meta = val.get_mut("metadata").unwrap();
-                                if existing_meta.get("annotations").is_none() {
-                                    existing_meta["annotations"] = json!({});
-                                }
-                                let existing_ann = existing_meta.get_mut("annotations").unwrap().as_object_mut().unwrap();
-                                if let Some(obj) = patch_ann.as_object() {
-                                    for (k, v) in obj {
-                                        existing_ann.insert(k.clone(), v.clone());
-                                    }
-                                }
-                            }
-                        }
+                        patch_metadata(val, &patch);
                         Ok(Json(val.clone()))
                     } else {
                         Err(axum::http::StatusCode::NOT_FOUND)
@@ -364,7 +397,6 @@ mod controller_tests {
             let ns = api.get("nsns").await.unwrap();
             let result = namespace::reconcile(Arc::new(ns), ctx.clone()).await;
             assert!(result.is_ok());
-
             let updated_map = state.namespaces.lock().unwrap();
             let updated_ns = updated_map.get("nsns").unwrap();
             let status = updated_ns.get("status").expect("status to be populated");

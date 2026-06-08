@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 use tracing::{info, debug};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use surrealdb_types::SurrealValue;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SchemaObjectType {
@@ -184,14 +185,14 @@ pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
     objects
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, SurrealValue, Debug, Default)]
 struct InfoDbResponse {
     tables: Option<BTreeMap<String, String>>,
     scopes: Option<BTreeMap<String, String>>,
     accesses: Option<BTreeMap<String, String>>,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, SurrealValue, Debug, Default)]
 struct InfoTableResponse {
     fields: Option<BTreeMap<String, String>>,
     indexes: Option<BTreeMap<String, String>>,

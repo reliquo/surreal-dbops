@@ -45,7 +45,7 @@ helm install surrealdb surrealdb/surrealdb \
   --create-namespace \
   --set surrealdb.initial_user=root \
   --set surrealdb.initial_pass=rootpassword \
-  --set image.tag=v1.3.0
+  --set image.tag=v3.1.3
 
 echo "Waiting for SurrealDB pod to be ready..."
 kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=surrealdb -n "${NAMESPACE}" --timeout=120s
