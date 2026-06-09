@@ -673,8 +673,7 @@ mod controller_tests {
                 .unwrap()
                 .insert("dbdifferr".to_string(), db_val);
 
-            let mut schema_val =
-                mock_schema_val("schemadifferr", "DEFINE TABLE user SCHEMAFULL;");
+            let mut schema_val = mock_schema_val("schemadifferr", "DEFINE TABLE user SCHEMAFULL;");
             schema_val["status"] = json!({
                 "currentVersionHash": "sha256:differrhash",
                 "activeRolloutName": "rolloutdifferr",
