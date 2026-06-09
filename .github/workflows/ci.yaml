@@ -126,6 +126,11 @@ jobs:
   e2e:
     name: E2E Chainsaw Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      checks: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
