@@ -17,14 +17,20 @@ COPY Cargo.toml Cargo.lock ./
 
 # Create dummy files to cache dependencies build
 RUN mkdir src && echo "pub fn dummy() {}" > src/lib.rs && echo "fn main() {}" > src/main.rs
-RUN cargo build --no-default-features --jobs 1
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/surreal-dbops/target \
+    cargo build --no-default-features --jobs 1
 RUN rm -rf src
 
 # Copy real source code
 COPY src/ ./src/
 
 # Build real binary
-RUN touch src/lib.rs src/main.rs && cargo build --no-default-features --jobs 1
+RUN touch src/lib.rs src/main.rs
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/surreal-dbops/target \
+    cargo build --no-default-features --jobs 1 && \
+    cp target/debug/surreal-dbops /usr/src/surreal-dbops/surreal-dbops
 
 # ==============================================================================
 # Runtime Stage
@@ -32,7 +38,7 @@ RUN touch src/lib.rs src/main.rs && cargo build --no-default-features --jobs 1
 FROM gcr.io/distroless/cc-debian12:latest
 
 # Copy binary from builder
-COPY --from=builder /usr/src/surreal-dbops/target/debug/surreal-dbops /usr/local/bin/surreal-dbops
+COPY --from=builder /usr/src/surreal-dbops/surreal-dbops /usr/local/bin/surreal-dbops
 
 USER 65532:65532
 
