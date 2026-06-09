@@ -1,7 +1,7 @@
 # ==============================================================================
-# Builder Stage
+# Base Stage
 # ==============================================================================
-FROM rust:slim-bookworm AS builder
+FROM rust:slim-bookworm AS base
 
 WORKDIR /usr/src/surreal-dbops
 
@@ -12,21 +12,42 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Cargo files
+# Install cargo-chef for dependency graph planning/cooking
+RUN cargo install cargo-chef --locked
+
+# ==============================================================================
+# Planner Stage
+# ==============================================================================
+FROM base AS planner
+
 COPY Cargo.toml Cargo.lock ./
-
-# Create dummy files to cache dependencies build
-RUN mkdir src && echo "pub fn dummy() {}" > src/lib.rs && echo "fn main() {}" > src/main.rs
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/surreal-dbops/target \
-    cargo build --no-default-features --jobs 1
-RUN rm -rf src
-
-# Copy real source code
 COPY src/ ./src/
 
-# Build real binary
-RUN touch src/lib.rs src/main.rs
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ==============================================================================
+# Cacher Stage
+# ==============================================================================
+FROM base AS cacher
+
+COPY --from=planner /usr/src/surreal-dbops/recipe.json recipe.json
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/surreal-dbops/target \
+    cargo chef cook --recipe-path recipe.json --no-default-features --jobs 1
+
+# ==============================================================================
+# Builder Stage
+# ==============================================================================
+FROM base AS builder
+
+COPY Cargo.toml Cargo.lock ./
+COPY src/ ./src/
+
+# Warm target dir with cooked dependency artifacts
+COPY --from=cacher /usr/src/surreal-dbops/target /usr/src/surreal-dbops/target
+
+# Build binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/src/surreal-dbops/target \
     cargo build --no-default-features --jobs 1 && \
