@@ -32,8 +32,8 @@ FROM base AS cacher
 
 COPY --from=planner /usr/src/surreal-dbops/recipe.json recipe.json
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/surreal-dbops/target \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target,target=/usr/src/surreal-dbops/target \
     cargo chef cook --recipe-path recipe.json --no-default-features --jobs 1
 
 # ==============================================================================
@@ -44,12 +44,8 @@ FROM base AS builder
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 
-# Warm target dir with cooked dependency artifacts
-COPY --from=cacher /usr/src/surreal-dbops/target /usr/src/surreal-dbops/target
-
-# Build binary
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/surreal-dbops/target \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target,target=/usr/src/surreal-dbops/target \
     cargo build --no-default-features --jobs 1 && \
     cp target/debug/surreal-dbops /usr/src/surreal-dbops/surreal-dbops
 
