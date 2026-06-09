@@ -194,17 +194,31 @@ jobs:
             --set webhook.certManager.generateCert=true
           kubectl wait --for=condition=Available deployment/surreal-dbops -n reliquo-system --timeout=180s
 
+      - name: Create test results directory
+        run: mkdir -p test-results
+
       - name: Run Chainsaw Tests
+        id: chainsaw
         run: |
           chainsaw test \
             --report-format XML \
             --report-name chainsaw-report \
-            --report-path ./test-results
+            --report-path test-results
         continue-on-error: true
+
+      - name: Detect Chainsaw report
+        id: chainsaw_report
+        if: (!cancelled())
+        run: |
+          if [[ -f test-results/chainsaw-report.xml ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish Chainsaw report
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: (!cancelled())
+        if: (!cancelled()) && steps.chainsaw_report.outputs.exists == 'true'
         with:
           check_name: "Chainsaw E2E Test Results"
           files: "test-results/chainsaw-report.xml"
