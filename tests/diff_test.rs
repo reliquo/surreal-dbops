@@ -70,26 +70,43 @@ mod tests {
         let db = match surrealdb::engine::any::connect("http://localhost:8000").await {
             Ok(db) => db,
             Err(e) => {
-                println!("Skipping integration-style diff test: local SurrealDB not reachable ({:?})", e);
+                println!(
+                    "Skipping integration-style diff test: local SurrealDB not reachable ({:?})",
+                    e
+                );
                 return;
             }
         };
-        if let Err(e) = db.signin(surrealdb::opt::auth::Root {
-            username: "root".to_string(),
-            password: "rootpassword".to_string(),
-        }).await {
-            println!("Skipping integration-style diff test: signin failed ({:?})", e);
+        if let Err(e) = db
+            .signin(surrealdb::opt::auth::Root {
+                username: "root".to_string(),
+                password: "rootpassword".to_string(),
+            })
+            .await
+        {
+            println!(
+                "Skipping integration-style diff test: signin failed ({:?})",
+                e
+            );
             return;
         }
-        
-        let _ = db.query("DEFINE NAMESPACE `test-ns-surreal`; DEFINE DATABASE `project-db`;").await;
+
+        let _ = db
+            .query("DEFINE NAMESPACE `test-ns-surreal`; DEFINE DATABASE `project-db`;")
+            .await;
         if let Err(e) = db.use_ns("test-ns-surreal").use_db("project-db").await {
-            println!("Skipping integration-style diff test: use_ns/db failed ({:?})", e);
+            println!(
+                "Skipping integration-style diff test: use_ns/db failed ({:?})",
+                e
+            );
             return;
         }
-        
+
         // Define some schema
-        let _ = db.query("DEFINE TABLE person SCHEMAFULL; DEFINE FIELD name ON TABLE person TYPE string;").await.unwrap();
+        let _ = db
+            .query("DEFINE TABLE person SCHEMAFULL; DEFINE FIELD name ON TABLE person TYPE string;")
+            .await
+            .unwrap();
 
         // Test compute_diff
         let desired_schema = "DEFINE TABLE person SCHEMAFULL;";

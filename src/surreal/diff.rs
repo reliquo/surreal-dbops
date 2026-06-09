@@ -282,8 +282,14 @@ pub async fn compute_diff(
     let db_scopes = db_info.scopes.unwrap_or_default();
     let db_accesses = db_info.accesses.unwrap_or_default();
 
-    tracing::info!("compute_diff: desired keys: {:?}", desired.keys().collect::<Vec<_>>());
-    tracing::info!("compute_diff: live tables: {:?}", db_tables.keys().collect::<Vec<_>>());
+    tracing::info!(
+        "compute_diff: desired keys: {:?}",
+        desired.keys().collect::<Vec<_>>()
+    );
+    tracing::info!(
+        "compute_diff: live tables: {:?}",
+        db_tables.keys().collect::<Vec<_>>()
+    );
     tracing::info!("compute_diff: live tables raw: {:?}", db_tables);
 
     let mut live_keys = BTreeSet::new();

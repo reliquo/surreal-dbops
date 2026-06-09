@@ -661,10 +661,9 @@ async fn apply_schema_to_db(
 
     // Execute within transaction
     let transaction_query = format!("BEGIN TRANSACTION;\n{}\nCOMMIT TRANSACTION;", query);
-    let response = db_client
-        .query(&transaction_query)
-        .await
-        .map_err(|e| Error::SurrealError(format!("Failed to apply schema transaction query: {}", e)))?;
+    let response = db_client.query(&transaction_query).await.map_err(|e| {
+        Error::SurrealError(format!("Failed to apply schema transaction query: {}", e))
+    })?;
     response
         .check()
         .map_err(|e| Error::SurrealError(format!("Failed to apply schema transaction: {}", e)))?;
