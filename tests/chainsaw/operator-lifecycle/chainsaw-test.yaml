@@ -38,11 +38,11 @@ spec:
   - name: surrealSqlEndpoint
     value: (join('', [$surrealConnectionString, '/sql']))
   - name: surrealRootCredentials
-    value: root:rootpassword
+    value: "root:rootpassword"
   - name: surrealNsHeader
-    value: (join('', ['NS: ', $surrealNamespaceName]))
+    value: "(join('', ['NS: ', $surrealNamespaceName]))"
   - name: surrealDbHeader
-    value: (join('', ['DB: ', $databaseName]))
+    value: "(join('', ['DB: ', $databaseName]))"
   timeouts:
     apply: 30s
     assert: 180s
