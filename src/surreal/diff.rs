@@ -246,18 +246,21 @@ struct InfoTableResponse {
 fn make_overwrite(definition: &str) -> String {
     let trimmed = definition.trim();
     let upper = trimmed.to_uppercase();
-    if upper.starts_with("DEFINE TABLE ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE FIELD ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE INDEX ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE EVENT ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE ACCESS ") {
-        format!("{} OVERWRITE{}", &trimmed[..13], &trimmed[13..])
-    } else if upper.starts_with("DEFINE SCOPE ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    const OVERWRITE_PREFIXES: &[&str] = &[
+        "DEFINE TABLE ",
+        "DEFINE FIELD ",
+        "DEFINE INDEX ",
+        "DEFINE EVENT ",
+        "DEFINE SCOPE ",
+        "DEFINE ACCESS ",
+    ];
+
+    if let Some(prefix) = OVERWRITE_PREFIXES
+        .iter()
+        .find(|prefix| upper.starts_with(**prefix))
+    {
+        let split_at = prefix.len();
+        format!("{} OVERWRITE{}", &trimmed[..split_at], &trimmed[split_at..])
     } else {
         trimmed.to_string()
     }
