@@ -1,25 +1,19 @@
 #[cfg(test)]
 mod controller_tests {
+    use axum::{
+        extract::{Path, State},
+        routing::{delete, get, patch, post},
+        Json, Router,
+    };
+    use kube::{config::Config, Api, Client};
+    use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-    use axum::{
-        routing::{get, post, patch, delete},
-        Router, Json, extract::{Path, State},
-    };
-    use serde_json::{json, Value};
-    use kube::{Client, config::Config, Api};
 
+    use surreal_dbops::controller::{database, instance, namespace, rollout, schema, Context};
     use surreal_dbops::crd::*;
-    use surreal_dbops::controller::{
-        Context,
-        instance,
-        namespace,
-        database,
-        schema,
-        rollout,
-    };
     use surreal_dbops::webhook::server::{
-        AdmissionReviewRequest, AdmissionRequest, UserInfo, mutate_handler
+        mutate_handler, AdmissionRequest, AdmissionReviewRequest, UserInfo,
     };
 
     #[derive(Clone, Default)]
@@ -46,7 +40,11 @@ mod controller_tests {
                                     if existing_obj.get("annotations").is_none() {
                                         existing_obj.insert("annotations".to_string(), json!({}));
                                     }
-                                    let existing_ann = existing_obj.get_mut("annotations").unwrap().as_object_mut().unwrap();
+                                    let existing_ann = existing_obj
+                                        .get_mut("annotations")
+                                        .unwrap()
+                                        .as_object_mut()
+                                        .unwrap();
                                     if let Some(obj) = v.as_object() {
                                         for (ak, av) in obj {
                                             existing_ann.insert(ak.clone(), av.clone());
@@ -366,12 +364,18 @@ mod controller_tests {
     #[tokio::test]
     async fn test_controllers_suite() {
         let (client, state, _server) = setup_mock_k8s_server().await;
-        let ctx = Arc::new(Context { client: client.clone() });
+        let ctx = Arc::new(Context {
+            client: client.clone(),
+        });
 
         // 1. Instance Test
         {
             let inst_val = mock_instance_val("instinstance", "mem://");
-            state.instances.lock().unwrap().insert("instinstance".to_string(), inst_val);
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instinstance".to_string(), inst_val);
 
             let api: Api<Instance> = Api::namespaced(client.clone(), "test-ns");
             let inst = api.get("instinstance").await.unwrap();
@@ -388,10 +392,18 @@ mod controller_tests {
         {
             let mut inst_val = mock_instance_val("instns", "mem://");
             inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
-            state.instances.lock().unwrap().insert("instns".to_string(), inst_val);
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instns".to_string(), inst_val);
 
             let ns_val = mock_namespace_val("nsns", "instns");
-            state.namespaces.lock().unwrap().insert("nsns".to_string(), ns_val);
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsns".to_string(), ns_val);
 
             let api: Api<Namespace> = Api::namespaced(client.clone(), "test-ns");
             let ns = api.get("nsns").await.unwrap();
@@ -409,14 +421,26 @@ mod controller_tests {
         {
             let mut inst_val = mock_instance_val("instdb", "mem://");
             inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
-            state.instances.lock().unwrap().insert("instdb".to_string(), inst_val);
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instdb".to_string(), inst_val);
 
             let mut ns_val = mock_namespace_val("nsdb", "instdb");
             ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
-            state.namespaces.lock().unwrap().insert("nsdb".to_string(), ns_val);
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsdb".to_string(), ns_val);
 
             let db_val = mock_database_val("dbdb", "nsdb", "schemadb");
-            state.databases.lock().unwrap().insert("dbdb".to_string(), db_val);
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbdb".to_string(), db_val);
 
             let api: Api<Database> = Api::namespaced(client.clone(), "test-ns");
             let db = api.get("dbdb").await.unwrap();
@@ -434,7 +458,11 @@ mod controller_tests {
         // 4. Schema Test
         {
             let schema_val = mock_schema_val("schematest", "DEFINE TABLE user SCHEMAFULL;");
-            state.schemas.lock().unwrap().insert("schematest".to_string(), schema_val);
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schematest".to_string(), schema_val);
 
             let api: Api<Schema> = Api::namespaced(client.clone(), "test-ns");
             let schema = api.get("schematest").await.unwrap();
@@ -443,7 +471,9 @@ mod controller_tests {
 
             let rollouts = state.rollouts.lock().unwrap();
             let rollout_name = "schematest-rollout-1";
-            let r = rollouts.get(rollout_name).expect("Rollout should be created");
+            let r = rollouts
+                .get(rollout_name)
+                .expect("Rollout should be created");
             assert_eq!(r["spec"]["generation"].as_i64(), Some(1));
             assert_eq!(r["spec"]["schemaRef"]["name"].as_str(), Some("schematest"));
         }
@@ -452,26 +482,49 @@ mod controller_tests {
         {
             let mut inst_val = mock_instance_val("instsafe", "mem://");
             inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
-            state.instances.lock().unwrap().insert("instsafe".to_string(), inst_val);
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instsafe".to_string(), inst_val);
 
             let mut ns_val = mock_namespace_val("nssafe", "instsafe");
             ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
-            state.namespaces.lock().unwrap().insert("nssafe".to_string(), ns_val);
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nssafe".to_string(), ns_val);
 
-            let mut schema_val = mock_schema_val("schemasafe", "DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;");
+            let mut schema_val = mock_schema_val(
+                "schemasafe",
+                "DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;",
+            );
             schema_val["status"] = json!({
                 "currentVersionHash": "sha256:somehash",
                 "activeRolloutName": "rolloutsafe",
                 "observedGeneration": 1
             });
-            state.schemas.lock().unwrap().insert("schemasafe".to_string(), schema_val);
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemasafe".to_string(), schema_val);
 
             let mut db_val = mock_database_val("dbsafe", "nssafe", "schemasafe");
             db_val["status"] = json!({ "created": true, "observedGeneration": 1 });
-            state.databases.lock().unwrap().insert("dbsafe".to_string(), db_val);
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbsafe".to_string(), db_val);
 
             let rollout_val = mock_rollout_val("rolloutsafe", "schemasafe", 1);
-            state.rollouts.lock().unwrap().insert("rolloutsafe".to_string(), rollout_val);
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutsafe".to_string(), rollout_val);
 
             let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
             let rollout = api.get("rolloutsafe").await.unwrap();
@@ -490,20 +543,38 @@ mod controller_tests {
         {
             let mut inst_val = mock_instance_val("instdest", "mem://");
             inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
-            state.instances.lock().unwrap().insert("instdest".to_string(), inst_val);
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instdest".to_string(), inst_val);
 
             let mut ns_val = mock_namespace_val("nsdest", "instdest");
             ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
-            state.namespaces.lock().unwrap().insert("nsdest".to_string(), ns_val);
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsdest".to_string(), ns_val);
 
             let mut db_val = mock_database_val("dbdest", "nsdest", "schemadest");
             db_val["status"] = json!({ "created": true, "observedGeneration": 1 });
-            state.databases.lock().unwrap().insert("dbdest".to_string(), db_val);
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbdest".to_string(), db_val);
 
             // First apply the base schema containing fields using the same connection client
-            let db_client = surreal_dbops::surreal::connect_instance("mem://", "root", "rootpassword").await.unwrap();
+            let db_client =
+                surreal_dbops::surreal::connect_instance("mem://", "root", "rootpassword")
+                    .await
+                    .unwrap();
             db_client.use_ns("nsdest").use_db("dbdest").await.unwrap();
-            db_client.query("DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;").await.unwrap();
+            db_client
+                .query("DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;")
+                .await
+                .unwrap();
 
             // Target Schema removes field `name` -> Destructive change!
             let mut schema_val = mock_schema_val("schemadest", "DEFINE TABLE user SCHEMAFULL;");
@@ -512,10 +583,18 @@ mod controller_tests {
                 "activeRolloutName": "rolloutdest",
                 "observedGeneration": 1
             });
-            state.schemas.lock().unwrap().insert("schemadest".to_string(), schema_val);
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemadest".to_string(), schema_val);
 
             let rollout_val = mock_rollout_val("rolloutdest", "schemadest", 1);
-            state.rollouts.lock().unwrap().insert("rolloutdest".to_string(), rollout_val);
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutdest".to_string(), rollout_val);
 
             let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
             let rollout = api.get("rolloutdest").await.unwrap();
@@ -530,7 +609,10 @@ mod controller_tests {
                 }
                 assert_eq!(r["status"]["destructive"].as_bool(), Some(true));
                 assert_eq!(r["status"]["approved"].as_bool(), Some(false));
-                assert!(r["status"]["diff"].as_str().unwrap().contains("REMOVE FIELD name ON TABLE user"));
+                assert!(r["status"]["diff"]
+                    .as_str()
+                    .unwrap()
+                    .contains("REMOVE FIELD name ON TABLE user"));
             }
 
             // Simulate Approving Rollout
@@ -543,7 +625,13 @@ mod controller_tests {
                     }
                 }
             });
-            api.patch("rolloutdest", &kube::api::PatchParams::default(), &kube::api::Patch::Merge(&patch_json)).await.unwrap();
+            api.patch(
+                "rolloutdest",
+                &kube::api::PatchParams::default(),
+                &kube::api::Patch::Merge(&patch_json),
+            )
+            .await
+            .unwrap();
 
             // Reconcile Rollout again -> Expected: Completed
             let rollout_approved = api.get("rolloutdest").await.unwrap();
@@ -608,20 +696,27 @@ mod controller_tests {
         assert!(response.patch.is_some());
         assert_eq!(response.patch_type.as_deref(), Some("JSONPatch"));
 
-        let patch_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, response.patch.unwrap()).unwrap();
+        let patch_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            response.patch.unwrap(),
+        )
+        .unwrap();
         let patch_val: Value = serde_json::from_slice(&patch_bytes).unwrap();
         let patch_array = patch_val.as_array().unwrap();
 
         let has_approved_by = patch_array.iter().any(|op| {
-            op["op"] == "add" &&
-            op["path"] == "/metadata/annotations/database.reliquo.io~1approved-by" &&
-            op["value"] == "dev-person"
+            op["op"] == "add"
+                && op["path"] == "/metadata/annotations/database.reliquo.io~1approved-by"
+                && op["value"] == "dev-person"
         });
         assert!(has_approved_by, "Patch must record the user username");
 
         let has_approved_at = patch_array.iter().any(|op| {
-            op["op"] == "add" &&
-            op["path"].as_str().unwrap().contains("database.reliquo.io~1approved-at")
+            op["op"] == "add"
+                && op["path"]
+                    .as_str()
+                    .unwrap()
+                    .contains("database.reliquo.io~1approved-at")
         });
         assert!(has_approved_at, "Patch must record approval time");
     }

@@ -14,11 +14,10 @@ kind create cluster --name "${CLUSTER_NAME}"
 
 # Setup cleanup trap
 function cleanup {
-  echo "=== Cleanup: Killing Port-Forward and Deleting KIND Cluster ==="
+  echo "=== Cleanup: Killing Port-Forward ==="
   if [ -n "${PF_PID:-}" ]; then
     kill "$PF_PID" || true
   fi
-  kind delete cluster --name "${CLUSTER_NAME}"
 }
 trap cleanup EXIT
 
@@ -56,7 +55,7 @@ kubectl create secret generic surrealdb-root \
   --from-literal=password=rootpassword
 
 echo "=== 4. Building and Loading Operator Image ==="
-docker build -t ghcr.io/reliquo/surreal-dbops:latest .
+DOCKER_BUILDKIT=1 docker build -t ghcr.io/reliquo/surreal-dbops:latest .
 kind load docker-image ghcr.io/reliquo/surreal-dbops:latest --name "${CLUSTER_NAME}"
 
 echo "=== 5. Installing surreal-dbops Operator ==="

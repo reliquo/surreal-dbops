@@ -1,14 +1,19 @@
 #[cfg(test)]
 mod integration_tests {
+    use k8s_openapi::api::core::v1::{ConfigMap, Namespace as K8sNamespace, Secret};
+    use kube::api::{Patch, PatchParams, PostParams};
+    use kube::{Api, Client, Resource, ResourceExt};
+    use serde_json::json;
     use std::collections::BTreeMap;
     use std::time::Duration;
-    use kube::{Api, Client, Resource, ResourceExt};
-    use kube::api::{PostParams, PatchParams, Patch};
-    use k8s_openapi::api::core::v1::{Namespace as K8sNamespace, Secret, ConfigMap};
-    use serde_json::json;
+    use surrealdb_types::SurrealValue;
     use tokio::time::sleep;
 
-    use surreal_dbops::crd::{Instance, InstanceSpec, Namespace, NamespaceSpec, Database, DatabaseSpec, Schema, SchemaSpec, Rollout, ValueOrRefSource, ValueFromSource, SecretKeySelector, ConfigMapKeySelector, LocalObjectReference, ApprovalPolicy};
+    use surreal_dbops::crd::{
+        ApprovalPolicy, ConfigMapKeySelector, Database, DatabaseSpec, Instance, InstanceSpec,
+        LocalObjectReference, Namespace, NamespaceSpec, Rollout, Schema, SchemaSpec,
+        SecretKeySelector, ValueFromSource, ValueOrRefSource,
+    };
     use surreal_dbops::surreal::connect_instance;
 
     const TEST_NAMESPACE: &str = "test-ns-dbops";
@@ -35,9 +40,10 @@ mod integration_tests {
                 namespace: Some(TEST_NAMESPACE.to_string()),
                 ..Default::default()
             },
-            data: Some(BTreeMap::from([
-                ("password".to_string(), k8s_openapi::ByteString("rootpassword".as_bytes().to_vec())),
-            ])),
+            data: Some(BTreeMap::from([(
+                "password".to_string(),
+                k8s_openapi::ByteString("rootpassword".as_bytes().to_vec()),
+            )])),
             ..Default::default()
         };
         let _ = secret_api.create(&PostParams::default(), &secret).await;
@@ -45,7 +51,9 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_surreal_dbops_operator_lifecycle() {
-        let client = Client::try_default().await.expect("Failed to create K8s client");
+        let client = Client::try_default()
+            .await
+            .expect("Failed to create K8s client");
         ensure_namespace(&client).await;
         create_root_secret(&client).await;
 
@@ -80,7 +88,10 @@ mod integration_tests {
             },
         };
         let instance = Instance::new("main-cluster", instance_spec);
-        let _ = instance_api.create(&PostParams::default(), &instance).await.unwrap();
+        let _ = instance_api
+            .create(&PostParams::default(), &instance)
+            .await
+            .unwrap();
 
         // Wait for Instance status ready
         println!("Waiting for Instance status.connected = true...");
@@ -109,7 +120,10 @@ mod integration_tests {
             },
         };
         let namespace = Namespace::new("test-ns-surreal", ns_spec);
-        let _ = ns_api.create(&PostParams::default(), &namespace).await.unwrap();
+        let _ = ns_api
+            .create(&PostParams::default(), &namespace)
+            .await
+            .unwrap();
 
         println!("Waiting for Namespace status.created = true...");
         ready = false;
@@ -127,11 +141,17 @@ mod integration_tests {
         assert!(ready, "Namespace failed to reach created status");
 
         // Connect directly to SurrealDB via local port-forward to verify namespace was created
-        let db_client = connect_instance("http://localhost:8000", "root", "rootpassword").await
+        let db_client = connect_instance("http://localhost:8000", "root", "rootpassword")
+            .await
             .expect("Failed to connect to SurrealDB from test host");
 
-        let ns_check = db_client.query("USE NS `test-ns-surreal`; INFO FOR NS;").await;
-        assert!(ns_check.is_ok(), "Namespace test-ns-surreal was not created in SurrealDB");
+        let ns_check = db_client
+            .query("USE NS `test-ns-surreal`; INFO FOR NS;")
+            .await;
+        assert!(
+            ns_check.is_ok(),
+            "Namespace test-ns-surreal was not created in SurrealDB"
+        );
 
         // ==============================================================================
         // 3. Create ConfigMap and Schema CRD (Non-destructive)
@@ -144,9 +164,11 @@ mod integration_tests {
                 namespace: Some(TEST_NAMESPACE.to_string()),
                 ..Default::default()
             },
-            data: Some(BTreeMap::from([
-                ("project.surql".to_string(), "DEFINE TABLE person SCHEMAFULL; DEFINE FIELD name ON TABLE person TYPE string;".to_string()),
-            ])),
+            data: Some(BTreeMap::from([(
+                "project.surql".to_string(),
+                "DEFINE TABLE person SCHEMAFULL; DEFINE FIELD name ON TABLE person TYPE string;"
+                    .to_string(),
+            )])),
             ..Default::default()
         };
         let _ = cm_api.create(&PostParams::default(), &cm).await.unwrap();
@@ -169,7 +191,10 @@ mod integration_tests {
             variables: None,
         };
         let schema = Schema::new("project-schema", schema_spec);
-        let _ = schema_api.create(&PostParams::default(), &schema).await.unwrap();
+        let _ = schema_api
+            .create(&PostParams::default(), &schema)
+            .await
+            .unwrap();
 
         // ==============================================================================
         // 4. Create Database CRD
@@ -186,7 +211,10 @@ mod integration_tests {
             },
         };
         let database = Database::new("project-db", db_spec);
-        let _ = db_api.create(&PostParams::default(), &database).await.unwrap();
+        let _ = db_api
+            .create(&PostParams::default(), &database)
+            .await
+            .unwrap();
 
         println!("Waiting for Database status.created = true...");
         ready = false;
@@ -220,9 +248,15 @@ mod integration_tests {
         assert!(ready, "Rollout 1 failed to reach Completed phase");
 
         // Verify table and field exist in SurrealDB
-        db_client.query("USE NS `test-ns-surreal`; USE DB `project-db`;").await.unwrap();
+        db_client
+            .query("USE NS `test-ns-surreal`; USE DB `project-db`;")
+            .await
+            .unwrap();
         let table_check = db_client.query("INFO FOR TABLE person;").await;
-        assert!(table_check.is_ok(), "Table person was not created in database");
+        assert!(
+            table_check.is_ok(),
+            "Table person was not created in database"
+        );
 
         // ==============================================================================
         // 5. Destructive Rollout (Modify schema to remove field 'name')
@@ -233,7 +267,10 @@ mod integration_tests {
                 "project.surql": "DEFINE TABLE person SCHEMAFULL;"
             }
         });
-        cm_api.patch("schemas", &PatchParams::default(), &Patch::Merge(&cm_patch)).await.unwrap();
+        cm_api
+            .patch("schemas", &PatchParams::default(), &Patch::Merge(&cm_patch))
+            .await
+            .unwrap();
 
         // Increment Schema spec to trigger reconcile
         let schema_patch = json!({
@@ -241,7 +278,14 @@ mod integration_tests {
                 "revisionHistoryLimit": 6
             }
         });
-        schema_api.patch("project-schema", &PatchParams::default(), &Patch::Merge(&schema_patch)).await.unwrap();
+        schema_api
+            .patch(
+                "project-schema",
+                &PatchParams::default(),
+                &Patch::Merge(&schema_patch),
+            )
+            .await
+            .unwrap();
 
         // Wait for Rollout (gen 2) creation and transition to Blocked
         println!("Waiting for Rollout project-schema-rollout-2 to reach Blocked phase...");
@@ -257,12 +301,27 @@ mod integration_tests {
             }
             sleep(Duration::from_secs(3)).await;
         }
-        assert!(ready, "Rollout 2 did not transition to Blocked phase on destructive change");
+        assert!(
+            ready,
+            "Rollout 2 did not transition to Blocked phase on destructive change"
+        );
 
         // Verify field 'name' STILL exists in SurrealDB (migration blocked)
-        let info_res = db_client.query("USE NS `test-ns-surreal`; USE DB `project-db`; INFO FOR TABLE person;").await.unwrap();
-        let info_str = format!("{:?}", info_res);
-        assert!(info_str.contains("name"), "Field 'name' was prematurely removed before approval");
+        #[derive(serde::Deserialize, Default, Debug, SurrealValue)]
+        struct TableInfo {
+            fields: Option<BTreeMap<String, String>>,
+        }
+
+        let mut info_res = db_client
+            .query("USE NS `test-ns-surreal`; USE DB `project-db`; INFO FOR TABLE person;")
+            .await
+            .unwrap();
+        let table_info: Option<TableInfo> = info_res.take(2).unwrap();
+        let fields = table_info.and_then(|t| t.fields).unwrap_or_default();
+        assert!(
+            fields.contains_key("name"),
+            "Field 'name' was prematurely removed before approval"
+        );
 
         // ==============================================================================
         // 6. Approve Destructive Rollout
@@ -275,7 +334,14 @@ mod integration_tests {
                 }
             }
         });
-        rollout_api.patch("project-schema-rollout-2", &PatchParams::default(), &Patch::Merge(&approval_patch)).await.unwrap();
+        rollout_api
+            .patch(
+                "project-schema-rollout-2",
+                &PatchParams::default(),
+                &Patch::Merge(&approval_patch),
+            )
+            .await
+            .unwrap();
 
         // Wait for Rollout 2 completion
         println!("Waiting for Rollout 2 to complete after approval...");
@@ -296,13 +362,27 @@ mod integration_tests {
         // Verify Mutating Admission Webhook injected approved-by metadata
         let final_rollout = rollout_api.get("project-schema-rollout-2").await.unwrap();
         let annotations = final_rollout.metadata.annotations.unwrap_or_default();
-        assert!(annotations.contains_key("database.reliquo.io/approved-by"), "Webhook failed to inject approved-by annotation");
-        assert!(annotations.contains_key("database.reliquo.io/approved-at"), "Webhook failed to inject approved-at annotation");
+        assert!(
+            annotations.contains_key("database.reliquo.io/approved-by"),
+            "Webhook failed to inject approved-by annotation"
+        );
+        assert!(
+            annotations.contains_key("database.reliquo.io/approved-at"),
+            "Webhook failed to inject approved-at annotation"
+        );
 
         // Verify field 'name' is now removed in SurrealDB
-        let final_info_res = db_client.query("USE NS `test-ns-surreal`; USE DB `project-db`; INFO FOR TABLE person;").await.unwrap();
-        let final_info_str = format!("{:?}", final_info_res);
-        assert!(!final_info_str.contains("name"), "Field 'name' was not removed after rollout completed");
+        let mut final_info_res = db_client
+            .query("USE NS `test-ns-surreal`; USE DB `project-db`; INFO FOR TABLE person;")
+            .await
+            .unwrap();
+        let final_table_info: Option<TableInfo> = final_info_res.take(2).unwrap();
+        let final_fields = final_table_info.and_then(|t| t.fields).unwrap_or_default();
+        println!("=== DEBUG: final_fields: {:?}", final_fields);
+        assert!(
+            !final_fields.contains_key("name"),
+            "Field 'name' was not removed after rollout completed"
+        );
 
         println!("=== Integration Test Completed Successfully! ===");
     }

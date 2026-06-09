@@ -1,12 +1,15 @@
 #[cfg(test)]
 mod tests {
-    use axum::{routing::get, Router, Json};
+    use axum::{routing::get, Json, Router};
+    use kube::{config::Config, Client};
     use serde_json::json;
     use std::collections::BTreeMap;
-    use kube::{Client, config::Config};
 
-    use surreal_dbops::crd::{ValueOrRefSource, ValueFromSource, SecretKeySelector, ConfigMapKeySelector, Schema, SchemaSpec};
-    use surreal_dbops::controller::utils::{resolve_value, resolve_and_interpolate_schema};
+    use surreal_dbops::controller::utils::{resolve_and_interpolate_schema, resolve_value};
+    use surreal_dbops::crd::{
+        ConfigMapKeySelector, Schema, SchemaSpec, SecretKeySelector, ValueFromSource,
+        ValueOrRefSource,
+    };
 
     async fn setup_mock_client() -> (Client, tokio::task::JoinHandle<()>) {
         let app = Router::new()
@@ -29,7 +32,7 @@ mod tests {
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        
+
         let server_handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
@@ -89,7 +92,10 @@ mod tests {
         };
 
         let result = resolve_value(&client, &source, "test-ns").await.unwrap();
-        assert_eq!(result, "DEFINE ACCESS users WITH JWT KEY ${JWT_KEY} ENV ${ENVIRONMENT};");
+        assert_eq!(
+            result,
+            "DEFINE ACCESS users WITH JWT KEY ${JWT_KEY} ENV ${ENVIRONMENT};"
+        );
     }
 
     #[tokio::test]
@@ -138,7 +144,9 @@ mod tests {
             },
         );
 
-        let result = resolve_and_interpolate_schema(&client, &schema, "test-ns").await.unwrap();
+        let result = resolve_and_interpolate_schema(&client, &schema, "test-ns")
+            .await
+            .unwrap();
         assert_eq!(
             result,
             "DEFINE ACCESS users WITH JWT KEY test-secret-value ENV dev;"
