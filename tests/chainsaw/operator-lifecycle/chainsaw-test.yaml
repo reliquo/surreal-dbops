@@ -214,7 +214,6 @@ spec:
         - surreal-query-pre-approval
         - -n
         - ($testNamespace)
-        - --rm
         - --restart=Never
         - --image=curlimages/curl:8.8.0
         - --command
@@ -264,7 +263,6 @@ spec:
         - surreal-query-post-approval
         - -n
         - ($testNamespace)
-        - --rm
         - --restart=Never
         - --image=curlimages/curl:8.8.0
         - --command
