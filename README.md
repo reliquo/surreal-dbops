@@ -151,11 +151,21 @@ We use a local Kubernetes-in-Docker (KIND) cluster to verify the entire lifecycl
 cargo test
 ```
 
-### Running Local E2E Tests
-The E2E test harness creates a temporary KIND cluster, installs cert-manager and SurrealDB, builds the operator, runs integration tests, and automatically cleans up:
+### Running E2E with Chainsaw
+E2E coverage is implemented with [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) using the explicit test definition approach.
+
+Install and run Chainsaw tests:
 
 ```bash
-./scripts/test-e2e.sh
+chainsaw test tests/chainsaw
+```
+
+The CI workflow provisions KIND, installs dependencies, deploys the operator, and executes the same Chainsaw suite.
+
+Run tests with a JUnit report:
+
+```bash
+chainsaw test tests/chainsaw --report-format junit --report-path .chainsaw-report
 ```
 
 ---

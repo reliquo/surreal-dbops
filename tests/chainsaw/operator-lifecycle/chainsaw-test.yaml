@@ -1,0 +1,291 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: surreal-dbops-operator-lifecycle
+spec:
+  concurrent: false
+  bindings:
+  - name: testNamespace
+    value: test-ns-dbops
+  - name: rootSecretName
+    value: surrealdb-root
+  - name: surrealServiceNamespace
+    value: reliquo-system
+  - name: instanceName
+    value: main-cluster
+  - name: surrealNamespaceName
+    value: test-ns-surreal
+  - name: schemaConfigMapName
+    value: schemas
+  - name: schemaConfigKey
+    value: project.surql
+  - name: schemaName
+    value: project-schema
+  - name: databaseName
+    value: project-db
+  - name: approvalAnnotation
+    value: database.reliquo.io/approved=true
+  - name: approvedByAnnotation
+    value: database.reliquo.io/approved-by
+  - name: approvedAtAnnotation
+    value: database.reliquo.io/approved-at
+  - name: rolloutOneName
+    value: (join('-', [$schemaName, 'rollout', '1']))
+  - name: rolloutTwoName
+    value: (join('-', [$schemaName, 'rollout', '2']))
+  - name: surrealConnectionString
+    value: (join('', ['http://surrealdb.', $surrealServiceNamespace, '.svc.cluster.local:8000']))
+  - name: surrealSqlEndpoint
+    value: (join('', [$surrealConnectionString, '/sql']))
+  - name: surrealRootCredentials
+    value: root:rootpassword
+  - name: surrealNsHeader
+    value: (join('', ['NS: ', $surrealNamespaceName]))
+  - name: surrealDbHeader
+    value: (join('', ['DB: ', $databaseName]))
+  timeouts:
+    apply: 30s
+    assert: 180s
+    cleanup: 30s
+  steps:
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: ($testNamespace)
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: ($rootSecretName)
+            namespace: ($testNamespace)
+          type: Opaque
+          stringData:
+            password: rootpassword
+    - apply:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Instance
+          metadata:
+            name: ($instanceName)
+            namespace: ($testNamespace)
+          spec:
+            connectionString:
+              value: ($surrealConnectionString)
+            username:
+              value: root
+            password:
+              valueFrom:
+                secretKeyRef:
+                  name: ($rootSecretName)
+                  key: password
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Instance
+          metadata:
+            name: ($instanceName)
+            namespace: ($testNamespace)
+          status:
+            connected: true
+  - try:
+    - apply:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Namespace
+          metadata:
+            name: ($surrealNamespaceName)
+            namespace: ($testNamespace)
+          spec:
+            instanceRef:
+              name: ($instanceName)
+              namespace: ($testNamespace)
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Namespace
+          metadata:
+            name: ($surrealNamespaceName)
+            namespace: ($testNamespace)
+          status:
+            created: true
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: ($schemaConfigMapName)
+            namespace: ($testNamespace)
+          data:
+            ($schemaConfigKey): |
+              DEFINE TABLE person SCHEMAFULL;
+              DEFINE FIELD name ON TABLE person TYPE string;
+    - apply:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Schema
+          metadata:
+            name: ($schemaName)
+            namespace: ($testNamespace)
+          spec:
+            revisionHistoryLimit: 5
+            concurrencyLimit: 10
+            requireApproval: destructive
+            schema:
+              valueFrom:
+                configMapRef:
+                  name: ($schemaConfigMapName)
+                  key: ($schemaConfigKey)
+    - apply:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Database
+          metadata:
+            name: ($databaseName)
+            namespace: ($testNamespace)
+          spec:
+            namespaceRef:
+              name: ($surrealNamespaceName)
+              namespace: ($testNamespace)
+            schemaRef:
+              name: ($schemaName)
+              namespace: ($testNamespace)
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Database
+          metadata:
+            name: ($databaseName)
+            namespace: ($testNamespace)
+          status:
+            created: true
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: ($rolloutOneName)
+            namespace: ($testNamespace)
+          status:
+            phase: Completed
+  - try:
+    - apply:
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: ($schemaConfigMapName)
+            namespace: ($testNamespace)
+          data:
+            ($schemaConfigKey): |
+              DEFINE TABLE person SCHEMAFULL;
+    - apply:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Schema
+          metadata:
+            name: ($schemaName)
+            namespace: ($testNamespace)
+          spec:
+            revisionHistoryLimit: 6
+            concurrencyLimit: 10
+            requireApproval: destructive
+            schema:
+              valueFrom:
+                configMapRef:
+                  name: ($schemaConfigMapName)
+                  key: ($schemaConfigKey)
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: ($rolloutTwoName)
+            namespace: ($testNamespace)
+          status:
+            phase: Blocked
+            destructive: true
+    - command:
+        entrypoint: kubectl
+        args:
+        - run
+        - surreal-query-pre-approval
+        - -n
+        - ($testNamespace)
+        - --rm
+        - --restart=Never
+        - --image=curlimages/curl:8.8.0
+        - --command
+        - --
+        - sh
+        - -ceu
+        - |
+          response="$(curl -sS -u "$SURREAL_AUTH" -H "$SURREAL_NS_HEADER" -H "$SURREAL_DB_HEADER" --data 'INFO FOR TABLE person;' "$SURREAL_SQL_ENDPOINT")"
+          echo "$response"
+          echo "$response" | grep -q 'name'
+        env:
+        - name: SURREAL_AUTH
+          value: ($surrealRootCredentials)
+        - name: SURREAL_NS_HEADER
+          value: ($surrealNsHeader)
+        - name: SURREAL_DB_HEADER
+          value: ($surrealDbHeader)
+        - name: SURREAL_SQL_ENDPOINT
+          value: ($surrealSqlEndpoint)
+  - try:
+    - command:
+        entrypoint: kubectl
+        args:
+        - annotate
+        - rollout
+        - ($rolloutTwoName)
+        - -n
+        - ($testNamespace)
+        - ($approvalAnnotation)
+        - --overwrite
+    - assert:
+        resource:
+          apiVersion: surrealdb.reliquo.io/v1alpha1
+          kind: Rollout
+          metadata:
+            name: ($rolloutTwoName)
+            namespace: ($testNamespace)
+            annotations:
+              ($approvedByAnnotation): ?*
+              ($approvedAtAnnotation): ?*
+          status:
+            phase: Completed
+    - command:
+        entrypoint: kubectl
+        args:
+        - run
+        - surreal-query-post-approval
+        - -n
+        - ($testNamespace)
+        - --rm
+        - --restart=Never
+        - --image=curlimages/curl:8.8.0
+        - --command
+        - --
+        - sh
+        - -ceu
+        - |
+          response="$(curl -sS -u "$SURREAL_AUTH" -H "$SURREAL_NS_HEADER" -H "$SURREAL_DB_HEADER" --data 'INFO FOR TABLE person;' "$SURREAL_SQL_ENDPOINT")"
+          echo "$response"
+          if echo "$response" | grep -q 'name'; then
+            echo "field 'name' should be removed after approval"
+            exit 1
+          fi
+        env:
+        - name: SURREAL_AUTH
+          value: ($surrealRootCredentials)
+        - name: SURREAL_NS_HEADER
+          value: ($surrealNsHeader)
+        - name: SURREAL_DB_HEADER
+          value: ($surrealDbHeader)
+        - name: SURREAL_SQL_ENDPOINT
+          value: ($surrealSqlEndpoint)

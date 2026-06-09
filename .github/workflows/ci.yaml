@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -25,14 +25,7 @@ jobs:
           components: rustfmt
 
       - name: Format check
-        run: cargo fmt --check
-
-      - name: Comment on PR if Failed
-        if: failure()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "❌ **Rust Format Check Failed**: One or more files are not formatted properly. Please run \`cargo fmt\` locally and push the changes."
+        uses: clechasseur/rs-fmt-check@v4.0.4
 
   clippy:
     name: Rust Clippy Check
@@ -57,14 +50,9 @@ jobs:
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Clippy check
-        run: cargo clippy -- -D warnings
-
-      - name: Comment on PR if Failed
-        if: failure()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "❌ **Rust Clippy Check Failed**: Clippy found lint errors or warnings. Please check the workflow run logs and resolve the issues."
+        uses: clechasseur/rs-clippy-check@v6.0.4
+        with:
+          args: --all-features
 
   test:
     name: Rust Unit Tests
@@ -72,6 +60,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install cargo reporter
+        uses: olix0r/cargo-action-fmt/setup@v2
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -85,15 +76,11 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-tests-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Build tests
+        run: cargo test --no-run --message-format=json | cargo-action-fmt
+
       - name: Run unit tests
         run: cargo test --lib --bins
-
-      - name: Comment on PR if Failed
-        if: failure() && github.event_name == 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "❌ **Rust Unit Tests Failed**: One or more unit tests did not pass. Please inspect the logs to diagnose and fix the failures."
 
   helm:
     name: Helm lint
@@ -116,7 +103,7 @@ jobs:
           gh pr comment ${{ github.event.pull_request.number }} --body "❌ **Helm Chart Lint Failed**: The Helm chart failed validation. Please verify the charts configuration using \`helm lint\`."
 
   e2e:
-    name: E2E Integration Tests
+    name: E2E Chainsaw Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -125,21 +112,75 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
+      - name: Install Chainsaw
+        uses: kyverno/action-install-chainsaw@v0.1.0
+        with:
+          release: v0.2.15
+
       - name: Set up KIND Command Line
         uses: helm/kind-action@v1.10.0
         with:
           cluster_name: surreal-dbops-tests
-          install_only: true
+          wait: 120s
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+          kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=180s
 
-      - name: Run E2E script
-        run: ./scripts/test-e2e.sh
+      - name: Ensure selfsigned ClusterIssuer
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: selfsigned-issuer
+          spec:
+            selfSigned: {}
+          EOF
+
+      - name: Install SurrealDB
+        run: |
+          helm repo add surrealdb https://helm.surrealdb.com
+          helm repo update
+          helm upgrade --install surrealdb surrealdb/surrealdb \
+            --namespace reliquo-system \
+            --create-namespace \
+            --set surrealdb.initial_user=root \
+            --set surrealdb.initial_pass=rootpassword \
+            --set image.tag=v3.1.3
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=surrealdb -n reliquo-system --timeout=180s
+
+      - name: Build and load operator image
+        run: |
+          DOCKER_BUILDKIT=1 docker build -t ghcr.io/reliquo/surreal-dbops:latest .
+          kind load docker-image ghcr.io/reliquo/surreal-dbops:latest --name surreal-dbops-tests
+
+      - name: Install surreal-dbops operator
+        run: |
+          helm upgrade --install surreal-dbops ./charts/surreal-dbops \
+            --namespace reliquo-system \
+            --set image.repository=ghcr.io/reliquo/surreal-dbops \
+            --set image.tag=latest \
+            --set image.pullPolicy=IfNotPresent \
+            --set webhook.enabled=true \
+            --set webhook.certManager.enabled=true \
+            --set webhook.certManager.generateCert=true
+          kubectl wait --for=condition=Available deployment/surreal-dbops -n reliquo-system --timeout=180s
+
+      - name: Run Chainsaw tests
+        run: chainsaw test tests/chainsaw --report-format junit --report-path .chainsaw-report
+
+      - name: Upload Chainsaw report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-report
+          path: .chainsaw-report
 
       - name: Comment on PR if Failed
         if: failure() && github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "❌ **E2E Integration Tests Failed**: The end-to-end integration tests failed. Please review the KIND test log to identify the root cause."
+          gh pr comment ${{ github.event.pull_request.number }} --body "❌ **E2E Chainsaw Tests Failed**: Please review the Chainsaw output and report artifacts for details."
