@@ -189,6 +189,7 @@ jobs:
             --set webhook.certManager.generateCert=true
           kubectl wait --for=condition=Available deployment/surreal-dbops -n reliquo-system --timeout=180s
 
+      - name: Run Chainsaw Tests
         run: |
           chainsaw test \
             --report-format XML \
