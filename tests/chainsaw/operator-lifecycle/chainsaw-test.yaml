@@ -17,8 +17,6 @@ spec:
     value: test-ns-surreal
   - name: schemaConfigMapName
     value: schemas
-  - name: schemaConfigKey
-    value: project.surql
   - name: schemaName
     value: project-schema
   - name: databaseName
@@ -139,7 +137,7 @@ spec:
               valueFrom:
                 configMapRef:
                   name: ($schemaConfigMapName)
-                  key: ($schemaConfigKey)
+                  key: project.surql
     - apply:
         resource:
           apiVersion: surrealdb.reliquo.io/v1alpha1
@@ -198,7 +196,7 @@ spec:
               valueFrom:
                 configMapRef:
                   name: ($schemaConfigMapName)
-                  key: ($schemaConfigKey)
+                  key: project.surql
     - assert:
         resource:
           apiVersion: surrealdb.reliquo.io/v1alpha1
