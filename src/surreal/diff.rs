@@ -1,9 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
-use tracing::{info, debug};
-use serde::{Deserialize, Serialize};
 use surrealdb_types::SurrealValue;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SchemaObjectType {
@@ -12,6 +12,18 @@ pub enum SchemaObjectType {
     Index { table: String },
     Event { table: String },
     Access,
+}
+
+impl SchemaObjectType {
+    pub fn priority(&self) -> u8 {
+        match self {
+            SchemaObjectType::Table => 0,
+            SchemaObjectType::Field { .. } => 1,
+            SchemaObjectType::Index { .. } => 2,
+            SchemaObjectType::Event { .. } => 3,
+            SchemaObjectType::Access => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +48,7 @@ impl SchemaObject {
 /// A simplified SurrealQL parser that extracts DEFINE statements from a schema text.
 pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
     let mut objects = BTreeMap::new();
-    
+
     // Split by semicolons, taking care of comments and basic strings
     let mut statements = Vec::new();
     let mut current_stmt = String::new();
@@ -108,7 +120,7 @@ pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
 
         let obj_type = tokens[1].to_uppercase();
         let obj_name = tokens[2].replace(":", ""); // Clean record prefix if present
-        
+
         let schema_obj = if obj_type == "TABLE" {
             Some(SchemaObject {
                 object_type: SchemaObjectType::Table,
@@ -119,14 +131,25 @@ pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
             // Format: DEFINE FIELD name ON [TABLE] table ...
             let table_index = tokens.iter().position(|&t| t.to_uppercase() == "ON");
             if let Some(idx) = table_index {
-                let next_token = tokens.get(idx + 1).map(|t| t.to_uppercase()).unwrap_or_default();
+                let next_token = tokens
+                    .get(idx + 1)
+                    .map(|t| t.to_uppercase())
+                    .unwrap_or_default();
                 let table_name = if next_token == "TABLE" {
-                    tokens.get(idx + 2).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 2)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 } else {
-                    tokens.get(idx + 1).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 1)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 };
                 Some(SchemaObject {
-                    object_type: SchemaObjectType::Field { table: table_name.to_lowercase() },
+                    object_type: SchemaObjectType::Field {
+                        table: table_name.to_lowercase(),
+                    },
                     name: obj_name.to_lowercase(),
                     definition: stmt.clone(),
                 })
@@ -136,14 +159,25 @@ pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
         } else if obj_type == "INDEX" {
             let table_index = tokens.iter().position(|&t| t.to_uppercase() == "ON");
             if let Some(idx) = table_index {
-                let next_token = tokens.get(idx + 1).map(|t| t.to_uppercase()).unwrap_or_default();
+                let next_token = tokens
+                    .get(idx + 1)
+                    .map(|t| t.to_uppercase())
+                    .unwrap_or_default();
                 let table_name = if next_token == "TABLE" {
-                    tokens.get(idx + 2).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 2)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 } else {
-                    tokens.get(idx + 1).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 1)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 };
                 Some(SchemaObject {
-                    object_type: SchemaObjectType::Index { table: table_name.to_lowercase() },
+                    object_type: SchemaObjectType::Index {
+                        table: table_name.to_lowercase(),
+                    },
                     name: obj_name.to_lowercase(),
                     definition: stmt.clone(),
                 })
@@ -153,14 +187,25 @@ pub fn parse_schema(schema_text: &str) -> BTreeMap<String, SchemaObject> {
         } else if obj_type == "EVENT" {
             let table_index = tokens.iter().position(|&t| t.to_uppercase() == "ON");
             if let Some(idx) = table_index {
-                let next_token = tokens.get(idx + 1).map(|t| t.to_uppercase()).unwrap_or_default();
+                let next_token = tokens
+                    .get(idx + 1)
+                    .map(|t| t.to_uppercase())
+                    .unwrap_or_default();
                 let table_name = if next_token == "TABLE" {
-                    tokens.get(idx + 2).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 2)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 } else {
-                    tokens.get(idx + 1).map(|t| t.replace(";", "")).unwrap_or_default()
+                    tokens
+                        .get(idx + 1)
+                        .map(|t| t.replace(";", ""))
+                        .unwrap_or_default()
                 };
                 Some(SchemaObject {
-                    object_type: SchemaObjectType::Event { table: table_name.to_lowercase() },
+                    object_type: SchemaObjectType::Event {
+                        table: table_name.to_lowercase(),
+                    },
                     name: obj_name.to_lowercase(),
                     definition: stmt.clone(),
                 })
@@ -199,6 +244,26 @@ struct InfoTableResponse {
     events: Option<BTreeMap<String, String>>,
 }
 
+fn make_overwrite(definition: &str) -> String {
+    let trimmed = definition.trim();
+    let upper = trimmed.to_uppercase();
+    if upper.starts_with("DEFINE TABLE ") {
+        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    } else if upper.starts_with("DEFINE FIELD ") {
+        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    } else if upper.starts_with("DEFINE INDEX ") {
+        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    } else if upper.starts_with("DEFINE EVENT ") {
+        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    } else if upper.starts_with("DEFINE ACCESS ") {
+        format!("{} OVERWRITE{}", &trimmed[..13], &trimmed[13..])
+    } else if upper.starts_with("DEFINE SCOPE ") {
+        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Introspects a SurrealDB database schema and compares it against the desired schema to produce a list of diff statements.
 pub async fn compute_diff(
     db: &Surreal<Any>,
@@ -212,10 +277,14 @@ pub async fn compute_diff(
     let mut response = db.query("INFO FOR DB;").await?;
     let db_info: Option<InfoDbResponse> = response.take(0)?;
     let db_info = db_info.unwrap_or_default();
-    
+
     let db_tables = db_info.tables.unwrap_or_default();
     let db_scopes = db_info.scopes.unwrap_or_default();
     let db_accesses = db_info.accesses.unwrap_or_default();
+
+    tracing::info!("compute_diff: desired keys: {:?}", desired.keys().collect::<Vec<_>>());
+    tracing::info!("compute_diff: live tables: {:?}", db_tables.keys().collect::<Vec<_>>());
+    tracing::info!("compute_diff: live tables raw: {:?}", db_tables);
 
     let mut live_keys = BTreeSet::new();
 
@@ -229,18 +298,26 @@ pub async fn compute_diff(
         if let Ok(mut t_response) = db.query(&table_info_query).await {
             let table_info: Option<InfoTableResponse> = t_response.take(0)?;
             let table_info = table_info.unwrap_or_default();
-            
+            tracing::info!("compute_diff: table {} info: {:?}", table_name, table_info);
+
             // Fields
             if let Some(fields) = table_info.fields {
                 for (field_name, field_def) in fields {
                     let field_key = format!("field:{}.{}", table_name, field_name);
                     live_keys.insert(field_key.clone());
-                    
+
                     if !desired.contains_key(&field_key) {
-                        diff_statements.push(format!("REMOVE FIELD {} ON TABLE {};", field_name, table_name));
+                        diff_statements.push(format!(
+                            "REMOVE FIELD {} ON TABLE {};",
+                            field_name, table_name
+                        ));
                         contains_destructive = true;
-                    } else if desired.get(&field_key).unwrap().definition.trim() != field_def.trim() {
-                        diff_statements.push(format!("{};", desired.get(&field_key).unwrap().definition));
+                    } else if desired.get(&field_key).unwrap().definition.trim() != field_def.trim()
+                    {
+                        diff_statements.push(format!(
+                            "{};",
+                            make_overwrite(&desired.get(&field_key).unwrap().definition)
+                        ));
                     }
                 }
             }
@@ -252,10 +329,17 @@ pub async fn compute_diff(
                     live_keys.insert(index_key.clone());
 
                     if !desired.contains_key(&index_key) {
-                        diff_statements.push(format!("REMOVE INDEX {} ON TABLE {};", index_name, table_name));
+                        diff_statements.push(format!(
+                            "REMOVE INDEX {} ON TABLE {};",
+                            index_name, table_name
+                        ));
                         contains_destructive = true;
-                    } else if desired.get(&index_key).unwrap().definition.trim() != index_def.trim() {
-                        diff_statements.push(format!("{};", desired.get(&index_key).unwrap().definition));
+                    } else if desired.get(&index_key).unwrap().definition.trim() != index_def.trim()
+                    {
+                        diff_statements.push(format!(
+                            "{};",
+                            make_overwrite(&desired.get(&index_key).unwrap().definition)
+                        ));
                     }
                 }
             }
@@ -267,10 +351,17 @@ pub async fn compute_diff(
                     live_keys.insert(event_key.clone());
 
                     if !desired.contains_key(&event_key) {
-                        diff_statements.push(format!("REMOVE EVENT {} ON TABLE {};", event_name, table_name));
+                        diff_statements.push(format!(
+                            "REMOVE EVENT {} ON TABLE {};",
+                            event_name, table_name
+                        ));
                         contains_destructive = true;
-                    } else if desired.get(&event_key).unwrap().definition.trim() != event_def.trim() {
-                        diff_statements.push(format!("{};", desired.get(&event_key).unwrap().definition));
+                    } else if desired.get(&event_key).unwrap().definition.trim() != event_def.trim()
+                    {
+                        diff_statements.push(format!(
+                            "{};",
+                            make_overwrite(&desired.get(&event_key).unwrap().definition)
+                        ));
                     }
                 }
             }
@@ -281,7 +372,10 @@ pub async fn compute_diff(
             diff_statements.push(format!("REMOVE TABLE {};", table_name));
             contains_destructive = true;
         } else if desired.get(&table_key).unwrap().definition.trim() != table_def.trim() {
-            diff_statements.push(format!("{};", desired.get(&table_key).unwrap().definition));
+            diff_statements.push(format!(
+                "{};",
+                make_overwrite(&desired.get(&table_key).unwrap().definition)
+            ));
         }
     }
 
@@ -295,15 +389,21 @@ pub async fn compute_diff(
             diff_statements.push(format!("REMOVE ACCESS {} ON DATABASE;", access_name)); // or REMOVE SCOPE depending on version
             contains_destructive = true;
         } else if desired.get(&access_key).unwrap().definition.trim() != access_def.trim() {
-            diff_statements.push(format!("{};", desired.get(&access_key).unwrap().definition));
+            diff_statements.push(format!(
+                "{};",
+                make_overwrite(&desired.get(&access_key).unwrap().definition)
+            ));
         }
     }
 
     // 2. Add new objects from desired schema that don't exist in live database
-    for (key, obj) in &desired {
-        if !live_keys.contains(key) {
-            diff_statements.push(format!("{};", obj.definition));
-        }
+    let mut new_objects: Vec<&SchemaObject> = desired
+        .values()
+        .filter(|obj| !live_keys.contains(&obj.key()))
+        .collect();
+    new_objects.sort_by_key(|obj| obj.object_type.priority());
+    for obj in new_objects {
+        diff_statements.push(format!("{};", obj.definition));
     }
 
     Ok((diff_statements, contains_destructive))

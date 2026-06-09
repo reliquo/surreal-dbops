@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use futures::StreamExt;
+use kube::api::ListParams;
+use kube::runtime::Controller;
+use kube::{Api, Client};
 use std::net::SocketAddr;
 use std::path::Path;
-use kube::{Api, Client};
-use kube::runtime::Controller;
-use kube::api::ListParams;
-use futures::StreamExt;
-use tracing::{info, error, Level};
+use std::sync::Arc;
+use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-use surreal_dbops::crd::{Instance, Namespace, Database, Schema, Rollout};
-use surreal_dbops::controller::{Context, instance, namespace, database, schema, rollout};
+use surreal_dbops::controller::{database, instance, namespace, rollout, schema, Context};
+use surreal_dbops::crd::{Database, Instance, Namespace, Rollout, Schema};
 use surreal_dbops::webhook::start_webhook_server;
 
 #[tokio::main]
@@ -41,7 +41,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Initialize Kubernetes client
     let client = Client::try_default().await?;
-    let context = Arc::new(Context { client: client.clone() });
+    let context = Arc::new(Context {
+        client: client.clone(),
+    });
 
     // 3. Initialize APIs
     let instances: Api<Instance> = Api::all(client.clone());
@@ -51,13 +53,17 @@ async fn main() -> anyhow::Result<()> {
     let rollouts: Api<Rollout> = Api::all(client.clone());
 
     // 4. Start Webhook Server (if certs and key are provided)
-    let enable_webhook = std::env::var("ENABLE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true";
+    let enable_webhook =
+        std::env::var("ENABLE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true";
     if enable_webhook {
-        let port = std::env::var("WEBHOOK_PORT").unwrap_or_else(|_| "8443".to_string())
+        let port = std::env::var("WEBHOOK_PORT")
+            .unwrap_or_else(|_| "8443".to_string())
             .parse::<u16>()?;
-        let cert_path_str = std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "/tls/tls.crt".to_string());
-        let key_path_str = std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "/tls/tls.key".to_string());
-        
+        let cert_path_str =
+            std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "/tls/tls.crt".to_string());
+        let key_path_str =
+            std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "/tls/tls.key".to_string());
+
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         let cert_path = Path::new(&cert_path_str).to_path_buf();
         let key_path = Path::new(&key_path_str).to_path_buf();

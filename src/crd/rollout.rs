@@ -1,7 +1,7 @@
+use crate::crd::{Condition, LocalObjectReference};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::crd::{Condition, LocalObjectReference};
 
 /// Tracks a schema migration execution.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
@@ -24,10 +24,10 @@ pub struct RolloutSpec {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RolloutStatus {
-    pub phase: Option<String>,          // Blocked, Progressing, Completed, Failed
-    pub diff: Option<String>,           // Generated SurrealQL schema diff
-    pub destructive: bool,              // True if the diff contains destructive statements
-    
+    pub phase: Option<String>, // Blocked, Progressing, Completed, Failed
+    pub diff: Option<String>,  // Generated SurrealQL schema diff
+    pub destructive: bool,     // True if the diff contains destructive statements
+
     // Concurrency stats
     pub affected_databases: usize,
     pub applied_databases: usize,

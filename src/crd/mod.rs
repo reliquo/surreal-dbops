@@ -1,15 +1,15 @@
+pub mod database;
 pub mod instance;
 pub mod namespace;
-pub mod schema;
-pub mod database;
 pub mod rollout;
+pub mod schema;
 
 // Re-export custom resources and specs/statuses
+pub use database::{Database, DatabaseSpec, DatabaseStatus};
 pub use instance::{Instance, InstanceSpec, InstanceStatus};
 pub use namespace::{Namespace, NamespaceSpec, NamespaceStatus};
-pub use schema::{Schema, SchemaSpec, SchemaStatus, ApprovalPolicy};
-pub use database::{Database, DatabaseSpec, DatabaseStatus};
 pub use rollout::{Rollout, RolloutSpec, RolloutStatus};
+pub use schema::{ApprovalPolicy, Schema, SchemaSpec, SchemaStatus};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

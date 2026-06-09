@@ -1,7 +1,7 @@
+use crate::crd::ValueOrRefSource;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::crd::ValueOrRefSource;
 
 /// Defines a SurrealDB server instance connection configuration.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]

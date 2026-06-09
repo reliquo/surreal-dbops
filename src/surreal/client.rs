@@ -1,4 +1,4 @@
-use surrealdb::engine::any::{Any, connect};
+use surrealdb::engine::any::{connect, Any};
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 use tokio::sync::OnceCell;
@@ -12,9 +12,13 @@ pub async fn connect_instance(
     password: &str,
 ) -> Result<Surreal<Any>, surrealdb::Error> {
     if endpoint.starts_with("mem://") {
-        let client = MEM_CLIENT.get_or_init(|| async {
-            connect("mem://").await.expect("Failed to initialize in-memory SurrealDB")
-        }).await;
+        let client = MEM_CLIENT
+            .get_or_init(|| async {
+                connect("mem://")
+                    .await
+                    .expect("Failed to initialize in-memory SurrealDB")
+            })
+            .await;
         return Ok(client.clone());
     }
 
@@ -22,6 +26,7 @@ pub async fn connect_instance(
     db.signin(Root {
         username: username.to_string(),
         password: password.to_string(),
-    }).await?;
+    })
+    .await?;
     Ok(db)
 }

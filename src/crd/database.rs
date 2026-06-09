@@ -1,7 +1,7 @@
+use crate::crd::LocalObjectReference;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::crd::LocalObjectReference;
 
 /// Declares a SurrealDB Database instance managed in-operator.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]

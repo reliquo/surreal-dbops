@@ -1,20 +1,22 @@
-use std::sync::Arc;
-use kube::{Api, Client, ResourceExt};
 use kube::runtime::controller::Action;
+use kube::{Api, Client, ResourceExt};
 use serde_json::json;
+use std::sync::Arc;
 use tokio::time::Duration;
-use tracing::{info, error};
+use tracing::{error, info};
 
-use crate::crd::{Instance, InstanceStatus};
-use crate::controller::{Context, Error, Result};
 use crate::controller::utils::resolve_value;
+use crate::controller::{Context, Error, Result};
+use crate::crd::{Instance, InstanceStatus};
 use crate::surreal::connect_instance;
 
 /// Reconciles an Instance resource.
 pub async fn reconcile(instance: Arc<Instance>, ctx: Arc<Context>) -> Result<Action> {
     let client = &ctx.client;
     let name = instance.name_any();
-    let namespace = instance.namespace().ok_or_else(|| Error::InternalError("Instance is cluster-scoped".to_string()))?;
+    let namespace = instance
+        .namespace()
+        .ok_or_else(|| Error::InternalError("Instance is cluster-scoped".to_string()))?;
 
     info!("Reconciling Instance {}/{}", namespace, name);
 
@@ -49,7 +51,10 @@ pub async fn reconcile(instance: Arc<Instance>, ctx: Arc<Context>) -> Result<Act
     // 2. Validate connection
     match connect_instance(&endpoint, &username, &password).await {
         Ok(_) => {
-            info!("Successfully validated connection to SurrealDB Instance {}", name);
+            info!(
+                "Successfully validated connection to SurrealDB Instance {}",
+                name
+            );
             update_status(&instance, client, &namespace, true, None).await?;
         }
         Err(e) => {
@@ -86,9 +91,13 @@ async fn update_status(
         }
     });
 
-    api.patch_status(&instance.name_any(), &kube::api::PatchParams::default(), &kube::api::Patch::Merge(&patch))
-        .await
-        .map_err(Error::KubeError)?;
+    api.patch_status(
+        &instance.name_any(),
+        &kube::api::PatchParams::default(),
+        &kube::api::Patch::Merge(&patch),
+    )
+    .await
+    .map_err(Error::KubeError)?;
 
     Ok(())
 }

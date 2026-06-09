@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use crate::crd::ValueOrRefSource;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::crd::ValueOrRefSource;
+use std::collections::BTreeMap;
 
 /// Defines a database schema template, with variables and rollout policies.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
