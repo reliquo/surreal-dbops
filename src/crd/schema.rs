@@ -38,7 +38,6 @@ pub enum ApprovalPolicy {
     None,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaStatus {
