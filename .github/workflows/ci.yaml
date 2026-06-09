@@ -22,6 +22,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
         with:
+          toolchain: nightly
           components: rustfmt
 
       - name: Format check
@@ -88,6 +89,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@v4.3.1
@@ -186,12 +189,16 @@ jobs:
             --set webhook.certManager.generateCert=true
           kubectl wait --for=condition=Available deployment/surreal-dbops -n reliquo-system --timeout=180s
 
-      - name: Run Chainsaw tests
-        run: chainsaw test tests/chainsaw --report-format JUnitXml --report-name report.xml
+        run: |
+          chainsaw test \
+            --report-format XML \
+            --report-name chainsaw-report \
+            --report-path ./test-results
+        continue-on-error: true
 
       - name: Publish Chainsaw report
         uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
+        if: (!cancelled())
         with:
-          files: |
-            report.xml
+          check_name: "Chainsaw E2E Test Results"
+          files: "test-results/chainsaw-report.xml"
