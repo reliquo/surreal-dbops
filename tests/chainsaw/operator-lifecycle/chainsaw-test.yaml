@@ -121,7 +121,7 @@ spec:
             name: ($schemaConfigMapName)
             namespace: ($testNamespace)
           data:
-            ($schemaConfigKey): |
+            project.surql: |
               DEFINE TABLE person SCHEMAFULL;
               DEFINE FIELD name ON TABLE person TYPE string;
     - apply:
@@ -181,7 +181,7 @@ spec:
             name: ($schemaConfigMapName)
             namespace: ($testNamespace)
           data:
-            ($schemaConfigKey): |
+            project.surql: |
               DEFINE TABLE person SCHEMAFULL;
     - apply:
         resource:
