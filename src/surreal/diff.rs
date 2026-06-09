@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 use surrealdb_types::SurrealValue;
-use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SchemaObjectType {
@@ -386,7 +385,7 @@ pub async fn compute_diff(
     }
 
     // Process scopes/accesses
-    let merged_access = db_scopes.into_iter().chain(db_accesses.into_iter());
+    let merged_access = db_scopes.into_iter().chain(db_accesses);
     for (access_name, access_def) in merged_access {
         let access_key = format!("access:{}", access_name);
         live_keys.insert(access_key.clone());

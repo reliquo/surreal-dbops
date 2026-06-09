@@ -30,17 +30,14 @@ pub struct SchemaSpec {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub enum ApprovalPolicy {
+    #[default]
     Destructive,
     All,
     None,
 }
 
-impl Default for ApprovalPolicy {
-    fn default() -> Self {
-        ApprovalPolicy::Destructive
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]

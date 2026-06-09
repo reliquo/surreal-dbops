@@ -79,7 +79,7 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
             rollout_api
                 .create(&PostParams::default(), &rollout)
                 .await
-                .map_err(|e| Error::KubeError(e))?;
+                .map_err(Error::KubeError)?;
         }
         Err(e) => {
             return Err(Error::KubeError(e));
