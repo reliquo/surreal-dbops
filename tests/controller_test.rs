@@ -646,6 +646,67 @@ mod controller_tests {
                 assert_eq!(r["status"]["approvedBy"].as_str(), Some("admin-user"));
             }
         }
+
+        // 7. Rollout blocks when diff cannot be computed
+        {
+            let mut inst_val = mock_instance_val("instdifferr", "http://127.0.0.1:1");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instdifferr".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nsdifferr", "instdifferr");
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsdifferr".to_string(), ns_val);
+
+            let mut db_val = mock_database_val("dbdifferr", "nsdifferr", "schemadifferr");
+            db_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbdifferr".to_string(), db_val);
+
+            let mut schema_val =
+                mock_schema_val("schemadifferr", "DEFINE TABLE user SCHEMAFULL;");
+            schema_val["status"] = json!({
+                "currentVersionHash": "sha256:differrhash",
+                "activeRolloutName": "rolloutdifferr",
+                "observedGeneration": 1
+            });
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemadifferr".to_string(), schema_val);
+
+            let rollout_val = mock_rollout_val("rolloutdifferr", "schemadifferr", 1);
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutdifferr".to_string(), rollout_val);
+
+            let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
+            let rollout = api.get("rolloutdifferr").await.unwrap();
+            let result = rollout::reconcile(Arc::new(rollout), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("rolloutdifferr").unwrap();
+            assert_eq!(r["status"]["phase"].as_str(), Some("Blocked"));
+            assert_eq!(r["status"]["destructive"].as_bool(), Some(true));
+            assert_eq!(
+                r["status"]["conditions"][0]["reason"].as_str(),
+                Some("DiffUnavailable")
+            );
+        }
     }
 
     #[test]

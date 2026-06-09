@@ -170,6 +170,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
     // 4. Compute Schema Diff using the first database (if any exist and are ready)
     let mut diff_statements = Vec::new();
     let mut destructive = false;
+    let mut diff_error: Option<String> = None;
 
     if let Some(target_db) = affected_databases.first() {
         let db_ns = target_db.namespace().unwrap_or_default();
@@ -178,47 +179,95 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
                 // Connect to the specific DB
                 let ns_ref_ns = resolve_namespace(&target_db.spec.namespace_ref, &db_ns);
                 let ns_api: Api<Namespace> = Api::namespaced(client.clone(), &ns_ref_ns);
-                if let Ok(ns) = ns_api.get(&target_db.spec.namespace_ref.name).await {
-                    if let Err(e) = db_client
-                        .use_ns(ns.name_any())
-                        .use_db(target_db.name_any())
-                        .await
-                    {
-                        warn!(
-                            "Failed to use namespace {} and database {}: {}",
-                            ns.name_any(),
-                            target_db.name_any(),
-                            e
-                        );
-                    }
-
-                    match compute_diff(&db_client, &desired_schema_text).await {
-                        Ok((statements, is_destructive)) => {
-                            diff_statements = statements;
-                            destructive = is_destructive;
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to compute diff against database {}: {}",
+                match ns_api.get(&target_db.spec.namespace_ref.name).await {
+                    Ok(ns) => {
+                        if let Err(e) = db_client
+                            .use_ns(ns.name_any())
+                            .use_db(target_db.name_any())
+                            .await
+                        {
+                            diff_error = Some(format!(
+                                "Failed to select namespace {} and database {} before diff: {}",
+                                ns.name_any(),
                                 target_db.name_any(),
                                 e
-                            );
+                            ));
+                        } else {
+                            match compute_diff(&db_client, &desired_schema_text).await {
+                                Ok((statements, is_destructive)) => {
+                                    diff_statements = statements;
+                                    destructive = is_destructive;
+                                }
+                                Err(e) => {
+                                    diff_error = Some(format!(
+                                        "Failed to compute diff against database {}: {}",
+                                        target_db.name_any(),
+                                        e
+                                    ));
+                                }
+                            }
                         }
+                    }
+                    Err(e) => {
+                        diff_error = Some(format!(
+                            "Failed to fetch Namespace {} for diff computation: {}",
+                            target_db.spec.namespace_ref.name, e
+                        ));
                     }
                 }
             }
             Err(e) => {
-                warn!(
+                diff_error = Some(format!(
                     "Failed to connect to database {} to calculate diff: {}",
                     target_db.name_any(),
                     e
-                );
+                ));
             }
         }
     }
 
     status.diff = Some(diff_statements.join("\n"));
     status.destructive = destructive;
+
+    if let Some(err_msg) = diff_error {
+        warn!("{}", err_msg);
+        status.destructive = true;
+        status.phase = Some("Blocked".to_string());
+        update_condition(
+            &mut status.conditions,
+            Condition {
+                r#type: "Approved".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "DiffUnavailable".to_string(),
+                message: "Unable to safely compute schema diff. Manual approval is required."
+                    .to_string(),
+            },
+        );
+        update_condition(
+            &mut status.conditions,
+            Condition {
+                r#type: "Progressing".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "Blocked".to_string(),
+                message: err_msg,
+            },
+        );
+        patch_status(
+            &rollout_name,
+            &rollout_namespace,
+            client,
+            &rollout.status,
+            &status,
+        )
+        .await?;
+        info!(
+            "Rollout {} is Blocked because schema diff could not be computed safely",
+            rollout_name
+        );
+        return Ok(Action::requeue(Duration::from_secs(15)));
+    }
 
     // 5. Evaluate Approval Policy
     let policy = schema
