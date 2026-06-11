@@ -1,11 +1,10 @@
+pub mod database;
 pub mod instance;
 pub mod namespace;
-pub mod database;
-pub mod schema;
 pub mod rollout;
+pub mod schema;
 pub mod utils;
 
-use std::sync::Arc;
 use kube::Client;
 use thiserror::Error;
 

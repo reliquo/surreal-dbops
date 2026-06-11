@@ -1,26 +1,34 @@
-use std::sync::Arc;
-use kube::{Api, Client, Resource, ResourceExt};
-use kube::api::{PostParams, DeleteParams, ListParams};
+use kube::api::{DeleteParams, ListParams, PostParams};
 use kube::runtime::controller::Action;
+use kube::{Api, Client, Resource, ResourceExt};
 use serde_json::json;
-use tokio::time::Duration;
-use tracing::{info, error};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::time::Duration;
+use tracing::{error, info};
 
-use crate::crd::{Schema, Rollout, RolloutSpec, SchemaStatus, LocalObjectReference};
 use crate::controller::{Context, Error, Result};
+use crate::crd::{LocalObjectReference, Rollout, RolloutSpec, Schema, SchemaStatus};
 
 /// Reconciles a Schema resource.
 pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action> {
     let client = &ctx.client;
     let schema_name = schema.name_any();
-    let schema_namespace = schema.namespace().ok_or_else(|| Error::InternalError("Schema is cluster-scoped".to_string()))?;
+    let schema_namespace = schema
+        .namespace()
+        .ok_or_else(|| Error::InternalError("Schema is cluster-scoped".to_string()))?;
 
     info!("Reconciling Schema {}/{}", schema_namespace, schema_name);
 
     // 1. Resolve raw schema content and interpolate variables
-    let interpolated_schema = match crate::controller::utils::resolve_and_interpolate_schema(client, &schema, &schema_namespace).await {
+    let interpolated_schema = match crate::controller::utils::resolve_and_interpolate_schema(
+        client,
+        &schema,
+        &schema_namespace,
+    )
+    .await
+    {
         Ok(text) => text,
         Err(e) => {
             let err_msg = format!("Failed to resolve and interpolate schema content: {}", e);
@@ -54,21 +62,25 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
                         namespace: Some(schema_namespace.clone()),
                     },
                     generation,
+                    desired_schema: interpolated_schema.clone(),
                 },
             );
-            
+
             // Add label so we can list rollouts for this schema
-            rollout.metadata.labels = Some(BTreeMap::from([
-                ("schema".to_string(), schema_name.clone()),
-            ]));
+            rollout.metadata.labels = Some(BTreeMap::from([(
+                "schema".to_string(),
+                schema_name.clone(),
+            )]));
 
             // Set OwnerReference to clean up when Schema is deleted
             if let Some(owner_ref) = schema.controller_owner_ref(&()) {
                 rollout.metadata.owner_references = Some(vec![owner_ref]);
             }
 
-            rollout_api.create(&PostParams::default(), &rollout).await
-                .map_err(|e| Error::KubeError(e))?;
+            rollout_api
+                .create(&PostParams::default(), &rollout)
+                .await
+                .map_err(Error::KubeError)?;
         }
         Err(e) => {
             return Err(Error::KubeError(e));
@@ -80,9 +92,16 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
     prune_rollout_history(&rollout_api, &schema_name, history_limit).await?;
 
     // 6. Update Schema status
-    update_status(&schema, client, &schema_namespace, Some(schema_hash), Some(rollout_name)).await?;
+    update_status(
+        &schema,
+        client,
+        &schema_namespace,
+        Some(schema_hash),
+        Some(rollout_name),
+    )
+    .await?;
 
-    Ok(Action::requeue(Duration::from_secs(300)))
+    Ok(Action::await_change())
 }
 
 /// Error handler for Schema reconciler.
@@ -101,7 +120,9 @@ async fn prune_rollout_history(
     let rollouts = rollout_api.list(&lp).await.map_err(Error::KubeError)?;
 
     // Filter to rollouts that are completed or failed (terminal state)
-    let mut terminal_rollouts: Vec<Rollout> = rollouts.items.into_iter()
+    let mut terminal_rollouts: Vec<Rollout> = rollouts
+        .items
+        .into_iter()
         .filter(|r| {
             if let Some(ref status) = r.status {
                 if let Some(ref phase) = status.phase {
@@ -114,12 +135,17 @@ async fn prune_rollout_history(
 
     // Sort by creation time (oldest first)
     terminal_rollouts.sort_by(|a, b| {
-        a.metadata.creation_timestamp.cmp(&b.metadata.creation_timestamp)
+        a.metadata
+            .creation_timestamp
+            .cmp(&b.metadata.creation_timestamp)
     });
 
     if terminal_rollouts.len() > limit {
         let prune_count = terminal_rollouts.len() - limit;
-        info!("Pruning {} old rollouts for schema {}", prune_count, schema_name);
+        info!(
+            "Pruning {} old rollouts for schema {}",
+            prune_count, schema_name
+        );
         for r in terminal_rollouts.iter().take(prune_count) {
             let name = r.name_any();
             info!("Deleting historical rollout {}", name);
@@ -138,18 +164,28 @@ async fn update_status(
     hash: Option<String>,
     rollout_name: Option<String>,
 ) -> Result<()> {
+    let new_status = SchemaStatus {
+        current_version_hash: hash,
+        active_rollout_name: rollout_name,
+        observed_generation: schema.metadata.generation,
+    };
+
+    if schema.status.as_ref() == Some(&new_status) {
+        return Ok(());
+    }
+
     let api: Api<Schema> = Api::namespaced(client.clone(), namespace);
     let patch = json!({
-        "status": SchemaStatus {
-            current_version_hash: hash,
-            active_rollout_name: rollout_name,
-            observed_generation: schema.metadata.generation,
-        }
+        "status": new_status
     });
 
-    api.patch_status(&schema.name_any(), &kube::api::PatchParams::default(), &kube::api::Patch::Merge(&patch))
-        .await
-        .map_err(Error::KubeError)?;
+    api.patch_status(
+        &schema.name_any(),
+        &kube::api::PatchParams::default(),
+        &kube::api::Patch::Merge(&patch),
+    )
+    .await
+    .map_err(Error::KubeError)?;
 
     Ok(())
 }

@@ -1,0 +1,325 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: surreal-dbops-operator-lifecycle
+spec:
+  concurrent: false
+  timeouts:
+    apply: 30s
+    assert: 30s
+    cleanup: 30s
+  catch:
+    - command:
+        entrypoint: kubectl
+        args:
+          - get
+          - pods
+          - -n
+          - reliquo-system
+          - -l
+          - app.kubernetes.io/name=surreal-dbops
+          - -o
+          - wide
+    - command:
+        entrypoint: kubectl
+        args:
+          - logs
+          - -n
+          - reliquo-system
+          - -l
+          - app.kubernetes.io/name=surreal-dbops
+          - --all-containers=true
+          - --tail=-1
+  steps:
+    - try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: test-ns-dbops
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: surrealdb-root
+                namespace: test-ns-dbops
+              type: Opaque
+              stringData:
+                password: rootpassword
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Instance
+              metadata:
+                name: main-cluster
+                namespace: test-ns-dbops
+              spec:
+                connectionString:
+                  value: http://surrealdb.reliquo-system.svc.cluster.local:8000
+                username:
+                  value: root
+                password:
+                  valueFrom:
+                    secretKeyRef:
+                      name: surrealdb-root
+                      key: password
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Instance
+              metadata:
+                name: main-cluster
+                namespace: test-ns-dbops
+              status:
+                connected: true
+    - try:
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Namespace
+              metadata:
+                name: test-ns-surreal
+                namespace: test-ns-dbops
+              spec:
+                instanceRef:
+                  name: main-cluster
+                  namespace: test-ns-dbops
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Namespace
+              metadata:
+                name: test-ns-surreal
+                namespace: test-ns-dbops
+              status:
+                created: true
+    - try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: schemas
+                namespace: test-ns-dbops
+              data:
+                project.surql: |
+                  DEFINE TABLE person SCHEMAFULL;
+                  DEFINE FIELD name ON TABLE person TYPE string;
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Database
+              metadata:
+                name: project-db
+                namespace: test-ns-dbops
+              spec:
+                namespaceRef:
+                  name: test-ns-surreal
+                  namespace: test-ns-dbops
+                schemaRef:
+                  name: project-schema
+                  namespace: test-ns-dbops
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Database
+              metadata:
+                name: project-db
+                namespace: test-ns-dbops
+              status:
+                created: true
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Schema
+              metadata:
+                name: project-schema
+                namespace: test-ns-dbops
+              spec:
+                revisionHistoryLimit: 5
+                concurrencyLimit: 10
+                requireApproval: destructive
+                schema:
+                  valueFrom:
+                    configMapRef:
+                      name: schemas
+                      key: project.surql
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-1
+                namespace: test-ns-dbops
+              status:
+                phase: Completed
+    - try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: schemas
+                namespace: test-ns-dbops
+              data:
+                project.surql: |
+                  DEFINE TABLE person SCHEMAFULL;
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Schema
+              metadata:
+                name: project-schema
+                namespace: test-ns-dbops
+              spec:
+                revisionHistoryLimit: 6
+                concurrencyLimit: 10
+                requireApproval: destructive
+                schema:
+                  valueFrom:
+                    configMapRef:
+                      name: schemas
+                      key: project.surql
+        - error:
+            timeout: 5s
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-2
+                namespace: test-ns-dbops
+              status:
+                phase: Completed
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-2
+                namespace: test-ns-dbops
+              status:
+                phase: Blocked
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-1
+                namespace: test-ns-dbops
+              status:
+                phase: Completed
+        - command:
+            entrypoint: kubectl
+            args:
+              - run
+              - surreal-query-pre-approval
+              - -n
+              - test-ns-dbops
+              - --restart=Never
+              - --image=curlimages/curl:8.8.0
+              - --command
+              - --
+              - sh
+              - -ceu
+              - |
+                response="$(curl -sS -u "root:rootpassword" -H "NS: test-ns-surreal" -H "DB: project-db" --data 'INFO FOR TABLE person;' "http://surrealdb.reliquo-system.svc.cluster.local:8000/sql")"
+                echo "$response"
+                echo "$response" | grep -q 'name'
+    - try:
+        - command:
+            entrypoint: kubectl
+            args:
+              - annotate
+              - rollout
+              - project-schema-rollout-2
+              - -n
+              - test-ns-dbops
+              - surreal-dbops.reliquo.io/approved=true
+              - --overwrite
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-2
+                namespace: test-ns-dbops
+                annotations:
+                  ("surreal-dbops.reliquo.io/approved-by" != null): true
+                  ("surreal-dbops.reliquo.io/approved-at" != null): true
+              status:
+                phase: Completed
+        - command:
+            entrypoint: kubectl
+            args:
+              - run
+              - surreal-query-post-approval
+              - -n
+              - test-ns-dbops
+              - --restart=Never
+              - --image=curlimages/curl:8.8.0
+              - --command
+              - --
+              - sh
+              - -ceu
+              - |
+                response="$(curl -sS -u "root:rootpassword" -H "NS: test-ns-surreal" -H "DB: project-db" --data 'INFO FOR TABLE person;' "http://surrealdb.reliquo-system.svc.cluster.local:8000/sql")"
+                echo "$response"
+                if echo "$response" | grep -q 'name'; then
+                  echo "field 'name' should be removed after approval"
+                  exit 1
+                fi
+        - apply:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Database
+              metadata:
+                name: project-db-2
+                namespace: test-ns-dbops
+              spec:
+                namespaceRef:
+                  name: test-ns-surreal
+                  namespace: test-ns-dbops
+                schemaRef:
+                  name: project-schema
+                  namespace: test-ns-dbops
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Database
+              metadata:
+                name: project-db-2
+                namespace: test-ns-dbops
+              status:
+                created: true
+                appliedSchemaGeneration: 2
+        - assert:
+            resource:
+              apiVersion: surreal-dbops.reliquo.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: project-schema-rollout-2
+                namespace: test-ns-dbops
+              status:
+                phase: Completed
+        - command:
+            entrypoint: kubectl
+            args:
+              - run
+              - surreal-query-db2-post-approval
+              - -n
+              - test-ns-dbops
+              - --restart=Never
+              - --image=curlimages/curl:8.8.0
+              - --command
+              - --
+              - sh
+              - -ceu
+              - |
+                response="$(curl -sS -u "root:rootpassword" -H "NS: test-ns-surreal" -H "DB: project-db-2" --data 'INFO FOR TABLE person;' "http://surrealdb.reliquo-system.svc.cluster.local:8000/sql")"
+                echo "$response"
+                if echo "$response" | grep -q 'name'; then
+                  echo "field 'name' should not exist on project-db-2 after generation 2 rollout"
+                  exit 1
+                fi

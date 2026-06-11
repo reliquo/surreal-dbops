@@ -5,14 +5,12 @@ metadata:
   name: {{ include "surreal-dbops.fullname" . }}
   labels:
     {{- include "surreal-dbops.labels" . | nindent 4 }}
-  {{- if .Values.webhook.certManager.enabled }}
   annotations:
     cert-manager.io/inject-ca-from: {{ printf "%s/%s" .Release.Namespace (include "surreal-dbops.fullname" .) | quote }}
-  {{- end }}
 webhooks:
-  - name: mutate.rollouts.surrealdb.reliquo.io
+  - name: mutate.rollouts.surreal-dbops.reliquo.io
     rules:
-      - apiGroups: ["surrealdb.reliquo.io"]
+      - apiGroups: ["surreal-dbops.reliquo.io"]
         apiVersions: ["v1alpha1"]
         operations: ["UPDATE"]
         resources: ["rollouts"]
@@ -28,7 +26,25 @@ webhooks:
     timeoutSeconds: 10
     failurePolicy: Fail
 ---
-{{- if and .Values.webhook.certManager.enabled .Values.webhook.certManager.generateCert }}
+{{- if .Values.webhook.certManager.generateIssuer }}
+apiVersion: cert-manager.io/v1
+kind: {{ default "Issuer" .Values.webhook.certManager.generatedIssuer.kind }}
+metadata:
+  name: {{ default (printf "%s-selfsigned" (include "surreal-dbops.fullname" .)) .Values.webhook.certManager.generatedIssuer.name }}
+  {{- if eq (default "Issuer" .Values.webhook.certManager.generatedIssuer.kind) "Issuer" }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "surreal-dbops.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.webhook.certManager.generatedIssuer.spec }}
+  {{- toYaml .Values.webhook.certManager.generatedIssuer.spec | nindent 2 }}
+  {{- else }}
+  selfSigned: {}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.webhook.certManager.generateCert }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -41,7 +57,13 @@ spec:
     - {{ include "surreal-dbops.fullname" . }}.{{ .Release.Namespace }}.svc
     - {{ include "surreal-dbops.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
+    {{- if .Values.webhook.certManager.generateIssuer }}
+    name: {{ default (printf "%s-selfsigned" (include "surreal-dbops.fullname" .)) .Values.webhook.certManager.generatedIssuer.name }}
+    kind: {{ default "Issuer" .Values.webhook.certManager.generatedIssuer.kind }}
+    group: {{ default "cert-manager.io" .Values.webhook.certManager.generatedIssuer.group }}
+    {{- else }}
     {{- toYaml .Values.webhook.certManager.issuerRef | nindent 4 }}
+    {{- end }}
   secretName: {{ .Values.webhook.secretName }}
 {{- end }}
 {{- end }}

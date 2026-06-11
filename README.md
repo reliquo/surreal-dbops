@@ -62,7 +62,7 @@ helm install surreal-dbops ./charts/surreal-dbops \
 
 ### 1. Declare the SurrealDB Instance and Namespace
 ```yaml
-apiVersion: surrealdb.reliquo.io/v1alpha1
+apiVersion: surreal-dbops.reliquo.io/v1alpha1
 kind: Instance
 metadata:
   name: main-cluster
@@ -78,7 +78,7 @@ spec:
         name: surrealdb-root-secret
         key: password
 ---
-apiVersion: surrealdb.reliquo.io/v1alpha1
+apiVersion: surreal-dbops.reliquo.io/v1alpha1
 kind: Namespace
 metadata:
   name: tenant-a
@@ -90,7 +90,7 @@ spec:
 
 ### 2. Declare a Schema with Secrets Interpolation
 ```yaml
-apiVersion: surrealdb.reliquo.io/v1alpha1
+apiVersion: surreal-dbops.reliquo.io/v1alpha1
 kind: Schema
 metadata:
   name: core-schema
@@ -114,7 +114,7 @@ spec:
 
 ### 3. Bind the Schema to a Database
 ```yaml
-apiVersion: surrealdb.reliquo.io/v1alpha1
+apiVersion: surreal-dbops.reliquo.io/v1alpha1
 kind: Database
 metadata:
   name: app-db
@@ -135,10 +135,10 @@ If a schema change introduces a destructive operation (e.g., removing a field or
 To approve the rollout, annotate the resource:
 
 ```bash
-kubectl annotate rollout <rollout-name> database.reliquo.io/approved="true" --overwrite
+kubectl annotate rollout <rollout-name> surreal-dbops.reliquo.io/approved="true" --overwrite
 ```
 
-The mutating webhook will automatically validate your privileges, record your identity (`database.reliquo.io/approved-by`), add an execution timestamp (`database.reliquo.io/approved-at`), and trigger the migration loop.
+The mutating webhook will automatically validate your privileges, record your identity (`surreal-dbops.reliquo.io/approved-by`), add an execution timestamp (`surreal-dbops.reliquo.io/approved-at`), and trigger the migration loop.
 
 ---
 
@@ -151,11 +151,21 @@ We use a local Kubernetes-in-Docker (KIND) cluster to verify the entire lifecycl
 cargo test
 ```
 
-### Running Local E2E Tests
-The E2E test harness creates a temporary KIND cluster, installs cert-manager and SurrealDB, builds the operator, runs integration tests, and automatically cleans up:
+### Running E2E with Chainsaw
+E2E coverage is implemented with [Kyverno Chainsaw](https://kyverno.github.io/chainsaw/latest/) using the explicit test definition approach.
+
+Install and run Chainsaw tests:
 
 ```bash
-./scripts/test-e2e.sh
+chainsaw test tests/chainsaw
+```
+
+The CI workflow provisions KIND, installs dependencies, deploys the operator, and executes the same Chainsaw suite.
+
+Run tests with a JUnit report:
+
+```bash
+chainsaw test tests/chainsaw --report-format junit --report-path .chainsaw-report
 ```
 
 ---

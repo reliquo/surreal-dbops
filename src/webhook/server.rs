@@ -1,17 +1,17 @@
-use std::net::SocketAddr;
-use std::path::Path;
-use std::fs::File;
-use std::io::BufReader;
-use std::sync::Arc;
-use axum::{Router, routing::post, Json};
+use axum::{routing::post, Json, Router};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use std::fs::File;
+use std::io::BufReader;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
-use tracing::{info, error};
-use chrono::Utc;
+use tracing::{error, info};
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -100,12 +100,17 @@ pub async fn start_webhook_server(
                 Ok(tls_stream) => {
                     let io = hyper_util::rt::TokioIo::new(tls_stream);
                     let service = hyper_util::service::TowerToHyperService::new(app);
-                    let _ = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-                        .serve_connection(io, service)
-                        .await;
+                    let _ = hyper_util::server::conn::auto::Builder::new(
+                        hyper_util::rt::TokioExecutor::new(),
+                    )
+                    .serve_connection(io, service)
+                    .await;
                 }
                 Err(e) => {
-                    error!("Failed to establish TLS handshake with peer {}: {}", peer_addr, e);
+                    error!(
+                        "Failed to establish TLS handshake with peer {}: {}",
+                        peer_addr, e
+                    );
                 }
             }
         });
@@ -127,14 +132,19 @@ pub async fn mutate_handler(
                     allowed: true,
                     patch: None,
                     patch_type: None,
-                    status: Some(StatusMessage { message: "No request body found".to_string() }),
+                    status: Some(StatusMessage {
+                        message: "No request body found".to_string(),
+                    }),
                 },
             });
         }
     };
 
     let uid = req.uid.clone();
-    info!("Received admission review mutation request for resource: {}/{}", req.namespace, req.name);
+    info!(
+        "Received admission review mutation request for resource: {}/{}",
+        req.namespace, req.name
+    );
 
     let mut response = AdmissionResponse {
         uid: uid.clone(),
@@ -153,13 +163,16 @@ pub async fn mutate_handler(
         if !old_approved && new_approved {
             let approver = &req.user_info.username;
             let timestamp = Utc::now().to_rfc3339();
-            
-            info!("Rollout approved by user: {} (generating JSON patch)", approver);
+
+            info!(
+                "Rollout approved by user: {} (generating JSON patch)",
+                approver
+            );
 
             // Construct JSON patch
             let patch_ops = generate_patch(obj, approver, &timestamp);
             let patch_json = serde_json::to_string(&patch_ops).unwrap_or_default();
-            
+
             response.patch = Some(BASE64.encode(patch_json.as_bytes()));
             response.patch_type = Some("JSONPatch".to_string());
         }
@@ -173,7 +186,7 @@ pub async fn mutate_handler(
 }
 
 fn is_approved(obj: &serde_json::Value) -> bool {
-    obj.pointer("/metadata/annotations/database.reliquo.io~1approved")
+    obj.pointer("/metadata/annotations/surreal-dbops.reliquo.io~1approved")
         .and_then(|val| val.as_str())
         .map(|s| s == "true")
         .unwrap_or(false)
@@ -185,10 +198,13 @@ fn generate_patch(
     timestamp: &str,
 ) -> Vec<serde_json::Value> {
     let mut patch = Vec::new();
-    
-    // Check if the annotations object already exists
-    let has_annotations = obj.pointer("/metadata/annotations").is_some();
-    
+
+    // Check if the annotations object already exists and is a valid object
+    let has_annotations = obj
+        .pointer("/metadata/annotations")
+        .map(|v| v.is_object())
+        .unwrap_or(false);
+
     if !has_annotations {
         // Create annotations block
         patch.push(json!({
@@ -201,13 +217,13 @@ fn generate_patch(
     // In JSON Patch, '/' is escaped as '~1'
     patch.push(json!({
         "op": "add",
-        "path": "/metadata/annotations/database.reliquo.io~1approved-by",
+        "path": "/metadata/annotations/surreal-dbops.reliquo.io~1approved-by",
         "value": approver
     }));
 
     patch.push(json!({
         "op": "add",
-        "path": "/metadata/annotations/database.reliquo.io~1approved-at",
+        "path": "/metadata/annotations/surreal-dbops.reliquo.io~1approved-at",
         "value": timestamp
     }));
 
@@ -217,8 +233,7 @@ fn generate_patch(
 fn load_tls_config(cert_path: &Path, key_path: &Path) -> anyhow::Result<ServerConfig> {
     let cert_file = File::open(cert_path)?;
     let mut reader = BufReader::new(cert_file);
-    let certs = rustls_pemfile::certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()?;
+    let certs = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
 
     let key_file = File::open(key_path)?;
     let mut reader = BufReader::new(key_file);

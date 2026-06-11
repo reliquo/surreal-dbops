@@ -1,12 +1,12 @@
+use crate::crd::{Condition, LocalObjectReference};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::crd::{Condition, LocalObjectReference};
 
 /// Tracks a schema migration execution.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[kube(
-    group = "surrealdb.reliquo.io",
+    group = "surreal-dbops.reliquo.io",
     version = "v1alpha1",
     kind = "Rollout",
     plural = "rollouts",
@@ -19,15 +19,21 @@ pub struct RolloutSpec {
     pub schema_ref: LocalObjectReference,
     /// Generation of the Schema that this rollout corresponds to.
     pub generation: i64,
+    /// Immutable desired schema snapshot for this rollout generation.
+    ///
+    /// This allows older rollouts to continue reconciling against the schema
+    /// content they were created with, even after the Schema resource advances.
+    #[serde(default)]
+    pub desired_schema: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RolloutStatus {
-    pub phase: Option<String>,          // Blocked, Progressing, Completed, Failed
-    pub diff: Option<String>,           // Generated SurrealQL schema diff
-    pub destructive: bool,              // True if the diff contains destructive statements
-    
+    pub phase: Option<String>, // Blocked, Progressing, Completed, Failed
+    pub diff: Option<String>,  // Generated SurrealQL schema diff
+    pub destructive: bool,     // True if the diff contains destructive statements
+
     // Concurrency stats
     pub affected_databases: usize,
     pub applied_databases: usize,

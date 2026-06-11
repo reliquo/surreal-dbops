@@ -1,77 +1,231 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  rust:
-    name: Rust lint & test
+  fmt:
+    name: Format / Rust
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
         with:
-          components: rustfmt, clippy
+          toolchain: nightly
+          components: rustfmt
+
+      - name: Format check
+        uses: clechasseur/rs-fmt-check@v4.0.4
+
+  clippy:
+    name: Lint / Rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+        with:
+          components: clippy
 
       - name: Cache cargo registry and build
-        uses: actions/cache@v3
+        uses: actions/cache@v5.0.5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Format check
-        run: cargo fmt --check
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Clippy check
-        run: cargo clippy -- -D warnings
+        uses: clechasseur/rs-clippy-check@v6.0.4
+        with:
+          args: --all-features
 
-      - name: Run unit tests
-        run: cargo test
-
-  helm:
-    name: Helm lint
+  test:
+    name: Test / Rust
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.12.0
-
-      - name: Lint Helm Chart
-        run: helm lint charts/surreal-dbops
-
-  e2e:
-    name: E2E Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.12.0
-
-      - name: Set up KIND Command Line
-        uses: helm/kind-action@v1.5.0
-        with:
-          cluster_name: surreal-dbops-tests
-          install_only: true
+      - name: Install cargo reporter
+        uses: olix0r/cargo-action-fmt/setup@v2
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
 
-      - name: Run E2E script
-        run: ./scripts/test-e2e.sh
+      - name: Cache cargo registry and build
+        uses: actions/cache@v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-tests-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build tests
+        run: cargo test --no-run --message-format=json | cargo-action-fmt
+
+      - name: Run unit tests
+        run: cargo test --lib --bins
+
+  helm:
+    name: Lint / Helm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+
+      - uses: actions/setup-python@v6.0.0
+        with:
+          python-version: '3.x'
+          check-latest: true
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.8.0
+
+      - name: Run chart-testing (list-changed)
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }} --config .github/ct.yaml)
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run chart-testing (lint)
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct lint --target-branch ${{ github.event.repository.default_branch }} --config .github/ct.yaml
+
+  e2e:
+    name: Test / End-to-End
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+
+      - name: Install Chainsaw
+        uses: kyverno/action-install-chainsaw@v0.1.0
+        with:
+          release: v0.2.15
+
+      - name: Set up KIND Command Line
+        uses: helm/kind-action@v1.14.0
+        with:
+          cluster_name: surreal-dbops-tests
+          wait: 120s
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.1.0
+
+      - name: Build operator image (cached)
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: ghcr.io/reliquo/surreal-dbops:latest
+          load: true
+          push: false
+          cache-from: type=gha,scope=surreal-dbops-operator-image
+          cache-to: type=gha,mode=max,scope=surreal-dbops-operator-image
+
+      - name: Load operator image into KIND
+        run: kind load docker-image ghcr.io/reliquo/surreal-dbops:latest --name surreal-dbops-tests
+
+      - name: Preinstall dependencies
+        run: |
+          echo "::group::Adding repositories"
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo add surrealdb https://helm.surrealdb.com
+          helm repo update
+          echo "::endgroup::"
+
+
+          echo "::group::Installing cert-manager CRDs"
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.crds.yaml
+          kubectl wait --for=condition=Established crd/certificates.cert-manager.io --timeout=180s
+          kubectl wait --for=condition=Established crd/issuers.cert-manager.io --timeout=180s
+          kubectl wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=180s
+          echo "::endgroup::"
+
+          echo "::group::Installing cert-manager"
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --set installCRDs=false
+          kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=180s
+          kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=180s
+          kubectl wait --for=condition=Available deployment/cert-manager-cainjector -n cert-manager --timeout=180s
+          echo "::endgroup::"
+
+          echo "::group::Installing SurrealDB"
+          helm upgrade --install surrealdb surrealdb/surrealdb \
+            --namespace reliquo-system \
+            --create-namespace \
+            --set surrealdb.initial_user=root \
+            --set surrealdb.initial_pass=rootpassword \
+            --set image.tag=v3.1.3
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=surrealdb -n reliquo-system --timeout=180s
+          echo "::endgroup::"
+
+      - name: Install surreal-dbops chart
+        run: |
+          helm dependency build charts/surreal-dbops
+          helm upgrade --install surreal-dbops-e2e ./charts/surreal-dbops \
+            --namespace reliquo-system \
+            --create-namespace \
+            --set image.repository=ghcr.io/reliquo/surreal-dbops \
+            --set image.tag=latest \
+            --set image.pullPolicy=IfNotPresent \
+            --set webhook.certManager.enabled=false
+          kubectl wait --for=condition=Available deployment/surreal-dbops-e2e -n reliquo-system --timeout=180s
+
+      - name: Create test results directory
+        run: mkdir -p test-results
+
+      - name: Run Chainsaw Tests
+        id: chainsaw
+        run: |
+          chainsaw test \
+            --report-format XML \
+            --report-name chainsaw-report \
+            --report-path test-results
+
+      - name: Detect Chainsaw report
+        id: chainsaw_report
+        if: (!cancelled())
+        run: |
+          if [[ -f test-results/chainsaw-report.xml ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test Summary
+        uses: test-summary/action@v2
+        if: (!cancelled())
+        with:
+          paths: "test-results/chainsaw-report.xml"
