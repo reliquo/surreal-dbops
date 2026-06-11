@@ -186,7 +186,7 @@ pub async fn mutate_handler(
 }
 
 fn is_approved(obj: &serde_json::Value) -> bool {
-    obj.pointer("/metadata/annotations/database.reliquo.io~1approved")
+    obj.pointer("/metadata/annotations/surreal-dbops.reliquo.io~1approved")
         .and_then(|val| val.as_str())
         .map(|s| s == "true")
         .unwrap_or(false)
@@ -199,8 +199,11 @@ fn generate_patch(
 ) -> Vec<serde_json::Value> {
     let mut patch = Vec::new();
 
-    // Check if the annotations object already exists
-    let has_annotations = obj.pointer("/metadata/annotations").is_some();
+    // Check if the annotations object already exists and is a valid object
+    let has_annotations = obj
+        .pointer("/metadata/annotations")
+        .map(|v| v.is_object())
+        .unwrap_or(false);
 
     if !has_annotations {
         // Create annotations block
@@ -214,13 +217,13 @@ fn generate_patch(
     // In JSON Patch, '/' is escaped as '~1'
     patch.push(json!({
         "op": "add",
-        "path": "/metadata/annotations/database.reliquo.io~1approved-by",
+        "path": "/metadata/annotations/surreal-dbops.reliquo.io~1approved-by",
         "value": approver
     }));
 
     patch.push(json!({
         "op": "add",
-        "path": "/metadata/annotations/database.reliquo.io~1approved-at",
+        "path": "/metadata/annotations/surreal-dbops.reliquo.io~1approved-at",
         "value": timestamp
     }));
 
