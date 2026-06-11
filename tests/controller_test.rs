@@ -62,13 +62,13 @@ mod controller_tests {
 
         let app = Router::new()
             // Instances
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/instances/:name", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/instances/:name", get(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.instances.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/instances/:name/status", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/instances/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.instances.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -83,7 +83,7 @@ mod controller_tests {
             ))
 
             // Namespaces
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/namespaces/:name", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/namespaces/:name", get(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.namespaces.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
@@ -99,7 +99,7 @@ mod controller_tests {
                     }
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/namespaces/:name/status", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/namespaces/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.namespaces.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -114,7 +114,7 @@ mod controller_tests {
             ))
 
             // Databases
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/databases/:name", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/databases/:name", get(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.databases.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
@@ -130,7 +130,7 @@ mod controller_tests {
                     }
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/databases/:name/status", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/databases/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.databases.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -154,12 +154,12 @@ mod controller_tests {
                     }
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/databases", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/databases", get(
                 |State(s): State<MockState>| async move {
                     let map = s.databases.lock().unwrap();
                     let items: Vec<Value> = map.values().cloned().collect();
                     Json(json!({
-                        "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+                        "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
                         "kind": "DatabaseList",
                         "metadata": {},
                         "items": items
@@ -168,13 +168,13 @@ mod controller_tests {
             ))
 
             // Schemas
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/schemas/:name", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/schemas/:name", get(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.schemas.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/schemas/:name/status", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/schemas/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.schemas.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -189,13 +189,13 @@ mod controller_tests {
             ))
 
             // Rollouts
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", get(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", get(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let map = s.rollouts.lock().unwrap();
                     map.get(&name).cloned().map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name/status", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name/status", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.rollouts.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -208,7 +208,7 @@ mod controller_tests {
                     }
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", patch(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", patch(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>, Json(patch): Json<Value>| async move {
                     let mut map = s.rollouts.lock().unwrap();
                     if let Some(val) = map.get_mut(&name) {
@@ -219,7 +219,7 @@ mod controller_tests {
                     }
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/rollouts", post(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/rollouts", post(
                 |Path(_): Path<String>, State(s): State<MockState>, Json(rollout): Json<Value>| async move {
                     let name = rollout["metadata"]["name"].as_str().unwrap().to_string();
                     let mut map = s.rollouts.lock().unwrap();
@@ -231,14 +231,14 @@ mod controller_tests {
                     let map = s.rollouts.lock().unwrap();
                     let items: Vec<Value> = map.values().cloned().collect();
                     Json(json!({
-                        "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+                        "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
                         "kind": "RolloutList",
                         "metadata": {},
                         "items": items
                     }))
                 }
             ))
-            .route("/apis/surrealdb.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", delete(
+            .route("/apis/surreal-dbops.reliquo.io/v1alpha1/namespaces/:namespace/rollouts/:name", delete(
                 |Path((_, name)): Path<(String, String)>, State(s): State<MockState>| async move {
                     let mut map = s.rollouts.lock().unwrap();
                     map.remove(&name).map(Json).ok_or(axum::http::StatusCode::NOT_FOUND)
@@ -276,7 +276,7 @@ mod controller_tests {
 
     fn mock_instance_val(name: &str, endpoint: &str) -> Value {
         json!({
-            "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+            "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Instance",
             "metadata": {
                 "name": name,
@@ -294,7 +294,7 @@ mod controller_tests {
 
     fn mock_namespace_val(name: &str, instance_name: &str) -> Value {
         json!({
-            "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+            "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Namespace",
             "metadata": {
                 "name": name,
@@ -310,7 +310,7 @@ mod controller_tests {
 
     fn mock_database_val(name: &str, ns_name: &str, schema_name: &str) -> Value {
         json!({
-            "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+            "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Database",
             "metadata": {
                 "name": name,
@@ -327,7 +327,7 @@ mod controller_tests {
 
     fn mock_schema_val(name: &str, schema_text: &str) -> Value {
         json!({
-            "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+            "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Schema",
             "metadata": {
                 "name": name,
@@ -345,8 +345,17 @@ mod controller_tests {
     }
 
     fn mock_rollout_val(name: &str, schema_name: &str, generation: i64) -> Value {
+        mock_rollout_val_with_desired_schema(name, schema_name, generation, None)
+    }
+
+    fn mock_rollout_val_with_desired_schema(
+        name: &str,
+        schema_name: &str,
+        generation: i64,
+        desired_schema: Option<&str>,
+    ) -> Value {
         json!({
-            "apiVersion": "surrealdb.reliquo.io/v1alpha1",
+            "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Rollout",
             "metadata": {
                 "name": name,
@@ -356,7 +365,8 @@ mod controller_tests {
             },
             "spec": {
                 "schemaRef": { "name": schema_name },
-                "generation": generation
+                "generation": generation,
+                "desiredSchema": desired_schema.unwrap_or("")
             }
         })
     }
@@ -476,6 +486,10 @@ mod controller_tests {
                 .expect("Rollout should be created");
             assert_eq!(r["spec"]["generation"].as_i64(), Some(1));
             assert_eq!(r["spec"]["schemaRef"]["name"].as_str(), Some("schematest"));
+            assert_eq!(
+                r["spec"]["desiredSchema"].as_str(),
+                Some("DEFINE TABLE user SCHEMAFULL;")
+            );
         }
 
         // 5. Rollout Safe Test
@@ -619,9 +633,9 @@ mod controller_tests {
             let patch_json = json!({
                 "metadata": {
                     "annotations": {
-                        "database.reliquo.io/approved": "true",
-                        "database.reliquo.io/approved-by": "admin-user",
-                        "database.reliquo.io/approved-at": "2026-06-07T08:00:00Z"
+                        "surreal-dbops.reliquo.io/approved": "true",
+                        "surreal-dbops.reliquo.io/approved-by": "admin-user",
+                        "surreal-dbops.reliquo.io/approved-at": "2026-06-07T08:00:00Z"
                     }
                 }
             });
@@ -646,6 +660,331 @@ mod controller_tests {
                 assert_eq!(r["status"]["approvedBy"].as_str(), Some("admin-user"));
             }
         }
+
+        // 7. Rollout blocks when diff cannot be computed
+        {
+            let mut inst_val = mock_instance_val("instdifferr", "http://127.0.0.1:1");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instdifferr".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nsdifferr", "instdifferr");
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsdifferr".to_string(), ns_val);
+
+            let mut db_val = mock_database_val("dbdifferr", "nsdifferr", "schemadifferr");
+            db_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbdifferr".to_string(), db_val);
+
+            let mut schema_val = mock_schema_val("schemadifferr", "DEFINE TABLE user SCHEMAFULL;");
+            schema_val["status"] = json!({
+                "currentVersionHash": "sha256:differrhash",
+                "activeRolloutName": "rolloutdifferr",
+                "observedGeneration": 1
+            });
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemadifferr".to_string(), schema_val);
+
+            let rollout_val = mock_rollout_val("rolloutdifferr", "schemadifferr", 1);
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutdifferr".to_string(), rollout_val);
+
+            let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
+            let rollout = api.get("rolloutdifferr").await.unwrap();
+            let result = rollout::reconcile(Arc::new(rollout), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("rolloutdifferr").unwrap();
+            assert_eq!(r["status"]["phase"].as_str(), Some("Blocked"));
+            assert_eq!(r["status"]["destructive"].as_bool(), Some(true));
+            assert_eq!(
+                r["status"]["conditions"][0]["reason"].as_str(),
+                Some("DiffUnavailable")
+            );
+        }
+
+        // 8. Rollout must use cached desired schema snapshot, not current Schema spec
+        {
+            let mut inst_val = mock_instance_val("instcache", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instcache".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nscache", "instcache");
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nscache".to_string(), ns_val);
+
+            let mut db_val = mock_database_val("dbcache", "nscache", "schemacache");
+            db_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbcache".to_string(), db_val);
+
+            // Live DB currently contains table+field.
+            let db_client =
+                surreal_dbops::surreal::connect_instance("mem://", "root", "rootpassword")
+                    .await
+                    .unwrap();
+            db_client.use_ns("nscache").use_db("dbcache").await.unwrap();
+            db_client
+                .query("DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;")
+                .await
+                .unwrap();
+
+            // Current Schema spec has advanced and removed field `name`.
+            let mut schema_val = mock_schema_val("schemacache", "DEFINE TABLE user SCHEMAFULL;");
+            schema_val["status"] = json!({
+                "currentVersionHash": "sha256:newhash",
+                "activeRolloutName": "rolloutcache",
+                "observedGeneration": 2
+            });
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemacache".to_string(), schema_val);
+
+            // Rollout generation 1 must keep using its cached desired schema (with field).
+            let rollout_val = mock_rollout_val_with_desired_schema(
+                "rolloutcache",
+                "schemacache",
+                1,
+                Some("DEFINE TABLE user SCHEMAFULL; DEFINE FIELD name ON TABLE user TYPE string;"),
+            );
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutcache".to_string(), rollout_val);
+
+            let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
+            let rollout = api.get("rolloutcache").await.unwrap();
+            let result = rollout::reconcile(Arc::new(rollout), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("rolloutcache").unwrap();
+            assert_eq!(r["status"]["phase"].as_str(), Some("Completed"));
+            assert_eq!(r["status"]["destructive"].as_bool(), Some(false));
+            let diff = r["status"]["diff"].as_str().unwrap_or("");
+            assert!(
+                !diff.contains("REMOVE FIELD name ON TABLE user"),
+                "rollout used current Schema instead of cached desired schema: {}",
+                diff
+            );
+        }
+
+        // 9. Database reconcile triggers latest rollout generation
+        {
+            let mut inst_val = mock_instance_val("insttrigger", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("insttrigger".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nstrigger", "insttrigger");
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nstrigger".to_string(), ns_val);
+
+            let mut schema_val = mock_schema_val("schematrigger", "DEFINE TABLE user SCHEMAFULL;");
+            schema_val["metadata"]["generation"] = json!(2);
+            schema_val["status"] = json!({
+                "currentVersionHash": "sha256:triggerhash",
+                "activeRolloutName": "schematrigger-rollout-2",
+                "observedGeneration": 2
+            });
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schematrigger".to_string(), schema_val);
+
+            let rollout_val = mock_rollout_val_with_desired_schema(
+                "schematrigger-rollout-2",
+                "schematrigger",
+                2,
+                Some("DEFINE TABLE user SCHEMAFULL;"),
+            );
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("schematrigger-rollout-2".to_string(), rollout_val);
+
+            let db_val = mock_database_val("dbtrigger", "nstrigger", "schematrigger");
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbtrigger".to_string(), db_val);
+
+            let api: Api<Database> = Api::namespaced(client.clone(), "test-ns");
+            let db = api.get("dbtrigger").await.unwrap();
+            let result = database::reconcile(Arc::new(db), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let initial_marker = {
+                let rollouts = state.rollouts.lock().unwrap();
+                let r = rollouts.get("schematrigger-rollout-2").unwrap();
+                r["metadata"]["annotations"]["surreal-dbops.reliquo.io/triggered-by-database"]
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .expect("latest rollout was not triggered by database reconcile")
+            };
+
+            // Reconcile the same DB again. Trigger marker should be unchanged,
+            // proving we do not patch rollout annotations repeatedly.
+            let db_again = api.get("dbtrigger").await.unwrap();
+            let result = database::reconcile(Arc::new(db_again), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("schematrigger-rollout-2").unwrap();
+            let marker_after = r["metadata"]["annotations"]
+                ["surreal-dbops.reliquo.io/triggered-by-database"]
+                .as_str()
+                .expect("trigger marker should still exist")
+                .to_string();
+            assert_eq!(
+                marker_after, initial_marker,
+                "database reconcile should not keep mutating rollout trigger annotation"
+            );
+        }
+
+        // 10. Completed rollout does not mutate or run reconciliation when up-to-date
+        {
+            let mut inst_val = mock_instance_val("instshort", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instshort".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nsshort", "instshort");
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsshort".to_string(), ns_val);
+
+            let mut db_val = mock_database_val("dbshort", "nsshort", "schemashort");
+            db_val["status"] = json!({
+                "created": true,
+                "observedGeneration": 1,
+                "appliedSchemaGeneration": 1
+            });
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbshort".to_string(), db_val);
+
+            let mut rollout_val = mock_rollout_val_with_desired_schema(
+                "rolloutshort",
+                "schemashort",
+                1,
+                Some("DEFINE TABLE user SCHEMAFULL;"),
+            );
+            rollout_val["status"] = json!({
+                "phase": "Completed",
+                "diff": "",
+                "destructive": false,
+                "affectedDatabases": 1,
+                "appliedDatabases": 1,
+                "failedDatabases": 0,
+                "approved": false,
+                "conditions": []
+            });
+            state
+                .rollouts
+                .lock()
+                .unwrap()
+                .insert("rolloutshort".to_string(), rollout_val);
+
+            let mut schema_val = mock_schema_val("schemashort", "DEFINE TABLE user SCHEMAFULL;");
+            schema_val["status"] = json!({
+                "currentVersionHash": "sha256:somehash",
+                "activeRolloutName": "rolloutshort",
+                "observedGeneration": 1
+            });
+            state
+                .schemas
+                .lock()
+                .unwrap()
+                .insert("schemashort".to_string(), schema_val);
+
+            let api: Api<Rollout> = Api::namespaced(client.clone(), "test-ns");
+            let rollout = api.get("rolloutshort").await.unwrap();
+
+            // Reconciling the completed rollout should immediately return Ok(Action::await_change())
+            let result = rollout::reconcile(Arc::new(rollout), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            // Reconciling should not mutate the rollout status (it short-circuited early)
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("rolloutshort").unwrap();
+            assert_eq!(r["status"]["phase"].as_str(), Some("Completed"));
+            assert_eq!(r["status"]["affectedDatabases"].as_u64(), Some(1));
+
+            // Also verify that a database with a newer generation (e.g. 2) is also ignored by rollout 1
+            drop(rollouts);
+            let mut db_updated = state
+                .databases
+                .lock()
+                .unwrap()
+                .get("dbshort")
+                .unwrap()
+                .clone();
+            db_updated["status"]["appliedSchemaGeneration"] = json!(2);
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbshort".to_string(), db_updated);
+
+            let rollout_again = api.get("rolloutshort").await.unwrap();
+            let result_again = rollout::reconcile(Arc::new(rollout_again), ctx.clone()).await;
+            assert!(result_again.is_ok());
+
+            let rollouts = state.rollouts.lock().unwrap();
+            let r = rollouts.get("rolloutshort").unwrap();
+            assert_eq!(r["status"]["phase"].as_str(), Some("Completed"));
+        }
     }
 
     #[test]
@@ -662,7 +1001,7 @@ mod controller_tests {
                 "name": "my-rollout",
                 "namespace": "test-ns",
                 "annotations": {
-                    "database.reliquo.io/approved": "true"
+                    "surreal-dbops.reliquo.io/approved": "true"
                 }
             }
         });
@@ -706,7 +1045,7 @@ mod controller_tests {
 
         let has_approved_by = patch_array.iter().any(|op| {
             op["op"] == "add"
-                && op["path"] == "/metadata/annotations/database.reliquo.io~1approved-by"
+                && op["path"] == "/metadata/annotations/surreal-dbops.reliquo.io~1approved-by"
                 && op["value"] == "dev-person"
         });
         assert!(has_approved_by, "Patch must record the user username");
@@ -716,7 +1055,7 @@ mod controller_tests {
                 && op["path"]
                     .as_str()
                     .unwrap()
-                    .contains("database.reliquo.io~1approved-at")
+                    .contains("surreal-dbops.reliquo.io~1approved-at")
         });
         assert!(has_approved_at, "Patch must record approval time");
     }
