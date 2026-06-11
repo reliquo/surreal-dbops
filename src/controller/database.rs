@@ -8,7 +8,7 @@ use tracing::{error, info};
 
 use crate::controller::utils::{resolve_namespace, resolve_value};
 use crate::controller::{Context, Error, Result};
-use crate::crd::{Database, DatabaseStatus, Instance, Namespace};
+use crate::crd::{Database, DatabaseStatus, Instance, Namespace, Rollout, Schema};
 use crate::surreal::connect_instance;
 
 /// Reconciles a Database resource.
@@ -262,6 +262,17 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
                 None,
             )
             .await?;
+
+            // Trigger reconciliation on the latest schema rollout so newly ready
+            // databases get migrated even if that rollout had previously completed.
+            if let Err(e) =
+                trigger_latest_rollout_for_database(client, &db_resource, &db_namespace).await
+            {
+                error!(
+                    "Failed to trigger latest rollout for Database {}/{}: {}",
+                    db_namespace, db_name, e
+                );
+            }
         }
         Err(e) => {
             let err_msg = format!(
@@ -285,6 +296,100 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
     }
 
     Ok(Action::requeue(Duration::from_secs(300)))
+}
+
+async fn trigger_latest_rollout_for_database(
+    client: &Client,
+    db_resource: &Database,
+    db_namespace: &str,
+) -> Result<()> {
+    let resolved_schema_ns = resolve_namespace(&db_resource.spec.schema_ref, db_namespace);
+    let schema_api: Api<Schema> = Api::namespaced(client.clone(), &resolved_schema_ns);
+    let schema = schema_api
+        .get(&db_resource.spec.schema_ref.name)
+        .await
+        .map_err(Error::KubeError)?;
+
+    let generation = schema.metadata.generation.unwrap_or(1);
+
+    // Only trigger the rollout when this database is behind the latest schema generation.
+    let applied_generation = db_resource
+        .status
+        .as_ref()
+        .and_then(|s| s.applied_schema_generation)
+        .unwrap_or_default();
+    if applied_generation >= generation {
+        return Ok(());
+    }
+
+    let rollout_name = format!("{}-rollout-{}", schema.name_any(), generation);
+    let rollout_api: Api<Rollout> = Api::namespaced(client.clone(), &resolved_schema_ns);
+
+    let trigger_marker = format!(
+        "{}/{}@gen-{}",
+        db_namespace,
+        db_resource.name_any(),
+        generation
+    );
+
+    // Avoid patch churn: if this exact trigger marker is already present, do not patch again.
+    if let Ok(existing_rollout) = rollout_api.get(&rollout_name).await {
+        let already_marked = existing_rollout
+            .metadata
+            .annotations
+            .as_ref()
+            .and_then(|a| a.get("surreal-dbops.reliquo.io/triggered-by-database"))
+            .is_some_and(|v| v == &trigger_marker);
+        if already_marked {
+            return Ok(());
+        }
+    }
+
+    let patch = json!({
+        "metadata": {
+            "annotations": {
+                "surreal-dbops.reliquo.io/triggered-by-database": trigger_marker
+            }
+        }
+    });
+
+    match rollout_api
+        .patch(
+            &rollout_name,
+            &PatchParams::default(),
+            &Patch::Merge(&patch),
+        )
+        .await
+    {
+        Ok(_) => {
+            info!(
+                "Triggered latest rollout {} for Database {}/{}",
+                rollout_name,
+                db_namespace,
+                db_resource.name_any()
+            );
+            Ok(())
+        }
+        Err(kube::Error::Api(ref response)) if response.code == 404 => {
+            info!(
+                "Latest rollout {} not found yet for Database {}/{}",
+                rollout_name,
+                db_namespace,
+                db_resource.name_any()
+            );
+            Ok(())
+        }
+        Err(kube::Error::Api(ref response)) if response.code == 404 => {
+            // Schema or rollout can legitimately appear later during bootstrap.
+            info!(
+                "Schema or rollout not found yet while triggering for Database {}/{}",
+                db_namespace,
+                db_resource.name_any()
+            );
+            Ok(())
+        }
+        Err(e) => Err(Error::KubeError(e)),
+    }
 }
 
 /// Error handler for Database reconciler.
