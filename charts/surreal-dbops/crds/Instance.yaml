@@ -1,0 +1,53 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: instances.surreal-dbops.reliquo.io
+spec:
+  group: surreal-dbops.reliquo.io
+  names:
+    kind: Instance
+    listKind: InstanceList
+    plural: instances
+    singular: instance
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [connectionString, username, password]
+              properties:
+                connectionString: &valueOrRefSource
+                  type: object
+                  properties:
+                    value: { type: string }
+                    valueFrom:
+                      type: object
+                      properties:
+                        secretKeyRef:
+                          type: object
+                          required: [name, key]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+                        configMapRef:
+                          type: object
+                          required: [name, key]
+                          properties:
+                            name: { type: string }
+                            key: { type: string }
+                username: *valueOrRefSource
+                password: *valueOrRefSource
+            status:
+              type: object
+              properties:
+                connected: { type: boolean }
+                error: { type: string }
+                observedGeneration: { type: integer }
+      subresources:
+        status: {}

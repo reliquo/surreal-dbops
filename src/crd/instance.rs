@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Defines a SurrealDB server instance connection configuration.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[kube(
-    group = "surrealdb.reliquo.io",
+    group = "surreal-dbops.reliquo.io",
     version = "v1alpha1",
     kind = "Instance",
     plural = "instances",

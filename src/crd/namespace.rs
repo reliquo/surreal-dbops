@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Declares a SurrealDB Namespace linked to a specific SurrealDB Instance.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[kube(
-    group = "surrealdb.reliquo.io",
+    group = "surreal-dbops.reliquo.io",
     version = "v1alpha1",
     kind = "Namespace",
     plural = "namespaces",

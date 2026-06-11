@@ -17,7 +17,7 @@ metadata:
     {{- include "surreal-dbops.labels" . | nindent 4 }}
 rules:
   # Permissions to manage logical SurrealDB custom resources
-  - apiGroups: ["surrealdb.reliquo.io"]
+  - apiGroups: ["surreal-dbops.reliquo.io"]
     resources:
       - instances
       - instances/status

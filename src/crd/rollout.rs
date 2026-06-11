@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Tracks a schema migration execution.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[kube(
-    group = "surrealdb.reliquo.io",
+    group = "surreal-dbops.reliquo.io",
     version = "v1alpha1",
     kind = "Rollout",
     plural = "rollouts",
@@ -19,6 +19,12 @@ pub struct RolloutSpec {
     pub schema_ref: LocalObjectReference,
     /// Generation of the Schema that this rollout corresponds to.
     pub generation: i64,
+    /// Immutable desired schema snapshot for this rollout generation.
+    ///
+    /// This allows older rollouts to continue reconciling against the schema
+    /// content they were created with, even after the Schema resource advances.
+    #[serde(default)]
+    pub desired_schema: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]

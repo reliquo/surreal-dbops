@@ -2,5 +2,17 @@ apiVersion: v2
 name: surreal-dbops
 description: A Helm chart for the SurrealDB GitOps Operator (surreal-dbops)
 type: application
-version: 0.1.3
-appVersion: "0.1.3"
+version: 0.1.4
+appVersion: "0.1.4"
+maintainers:
+  - name: rintaun
+    email: rintaun@gmail.com
+dependencies:
+  - name: cert-manager
+    repository: https://charts.jetstack.io
+    version: v1.12.0
+    condition: webhook.certManager.enabled
+  - name: surrealdb
+    repository: https://helm.surrealdb.com
+    version: 0.4.0
+    condition: surrealdb.enabled

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 /// Defines a database schema template, with variables and rollout policies.
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
 #[kube(
-    group = "surrealdb.reliquo.io",
+    group = "surreal-dbops.reliquo.io",
     version = "v1alpha1",
     kind = "Schema",
     plural = "schemas",
@@ -30,16 +30,12 @@ pub struct SchemaSpec {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub enum ApprovalPolicy {
+    #[default]
     Destructive,
     All,
     None,
-}
-
-impl Default for ApprovalPolicy {
-    fn default() -> Self {
-        ApprovalPolicy::Destructive
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
