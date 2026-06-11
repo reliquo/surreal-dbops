@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 use surrealdb_types::SurrealValue;
-use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SchemaObjectType {
@@ -246,21 +245,210 @@ struct InfoTableResponse {
 
 fn make_overwrite(definition: &str) -> String {
     let trimmed = definition.trim();
-    let upper = trimmed.to_uppercase();
-    if upper.starts_with("DEFINE TABLE ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE FIELD ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE INDEX ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE EVENT ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
-    } else if upper.starts_with("DEFINE ACCESS ") {
-        format!("{} OVERWRITE{}", &trimmed[..13], &trimmed[13..])
-    } else if upper.starts_with("DEFINE SCOPE ") {
-        format!("{} OVERWRITE{}", &trimmed[..12], &trimmed[12..])
+    let upper = trimmed.to_ascii_uppercase();
+
+    if !upper.starts_with("DEFINE ") {
+        return trimmed.to_string();
+    }
+
+    let mut parts = trimmed.splitn(3, char::is_whitespace);
+    let Some(_define_kw) = parts.next() else {
+        return trimmed.to_string();
+    };
+    let Some(kind) = parts.next() else {
+        return trimmed.to_string();
+    };
+    let Some(rest) = parts.next() else {
+        return trimmed.to_string();
+    };
+
+    let rest = rest.trim_start();
+    let rest_upper = rest.to_ascii_uppercase();
+
+    if rest_upper.starts_with("OVERWRITE") {
+        return trimmed.to_string();
+    }
+
+    // IF NOT EXISTS and OVERWRITE are mutually exclusive: replace INE with OVERWRITE.
+    let rewritten_rest = if rest_upper.starts_with("IF NOT EXISTS") {
+        rest["IF NOT EXISTS".len()..].trim_start()
     } else {
-        trimmed.to_string()
+        rest
+    };
+
+    if rewritten_rest.is_empty() {
+        format!("DEFINE {} OVERWRITE", kind)
+    } else {
+        format!("DEFINE {} OVERWRITE {}", kind, rewritten_rest)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalTableDef {
+    name: String,
+    schema_mode: Option<String>,
+    table_type: Option<String>,
+    permissions: Option<String>,
+}
+
+fn parse_canonical_table_definition(definition: &str) -> Option<CanonicalTableDef> {
+    let cleaned = definition.trim().trim_end_matches(';');
+    let tokens: Vec<String> = cleaned
+        .split_whitespace()
+        .map(|t| t.trim_end_matches(';').to_uppercase())
+        .collect();
+
+    if tokens.len() < 3 || tokens[0] != "DEFINE" || tokens[1] != "TABLE" {
+        return None;
+    }
+
+    let mut idx = 2;
+    if tokens.get(idx).is_some_and(|t| t == "OVERWRITE") {
+        idx += 1;
+    }
+
+    let name = tokens.get(idx)?.clone();
+    idx += 1;
+
+    let mut schema_mode: Option<String> = None;
+    let mut table_type: Option<String> = None;
+    let mut permissions: Option<String> = None;
+
+    while idx < tokens.len() {
+        match tokens[idx].as_str() {
+            "TYPE" => {
+                if let Some(next) = tokens.get(idx + 1) {
+                    table_type = Some(next.clone());
+                    idx += 2;
+                } else {
+                    idx += 1;
+                }
+            }
+            "SCHEMAFULL" | "SCHEMALESS" => {
+                schema_mode = Some(tokens[idx].clone());
+                idx += 1;
+            }
+            "PERMISSIONS" => {
+                let rest = tokens[idx + 1..].join(" ");
+                permissions = Some(rest);
+                break;
+            }
+            _ => {
+                idx += 1;
+            }
+        }
+    }
+
+    Some(CanonicalTableDef {
+        name,
+        schema_mode,
+        table_type,
+        permissions,
+    })
+}
+
+fn table_definitions_equivalent(desired: &str, live: &str) -> bool {
+    match (
+        parse_canonical_table_definition(desired),
+        parse_canonical_table_definition(live),
+    ) {
+        (Some(desired_def), Some(live_def)) => {
+            if desired_def.name != live_def.name {
+                return false;
+            }
+            if desired_def.schema_mode.is_some()
+                && desired_def.schema_mode.as_ref() != live_def.schema_mode.as_ref()
+            {
+                return false;
+            }
+            if desired_def.table_type.is_some()
+                && desired_def.table_type.as_ref() != live_def.table_type.as_ref()
+            {
+                return false;
+            }
+            if desired_def.permissions.is_some()
+                && desired_def.permissions.as_ref() != live_def.permissions.as_ref()
+            {
+                return false;
+            }
+            true
+        }
+        _ => desired.trim() == live.trim(),
+    }
+}
+
+fn parse_canonical_field_definition(definition: &str) -> Option<String> {
+    let cleaned = definition.trim().trim_end_matches(';');
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+
+    if tokens.len() < 5
+        || !tokens[0].eq_ignore_ascii_case("DEFINE")
+        || !tokens[1].eq_ignore_ascii_case("FIELD")
+    {
+        return None;
+    }
+
+    let mut idx = 2;
+    if tokens
+        .get(idx)
+        .is_some_and(|t| t.eq_ignore_ascii_case("OVERWRITE"))
+    {
+        idx += 1;
+    }
+
+    let field_name = tokens.get(idx)?.trim_end_matches(';').to_lowercase();
+    idx += 1;
+
+    if !tokens
+        .get(idx)
+        .is_some_and(|t| t.eq_ignore_ascii_case("ON"))
+    {
+        return None;
+    }
+    idx += 1;
+
+    if tokens
+        .get(idx)
+        .is_some_and(|t| t.eq_ignore_ascii_case("TABLE"))
+    {
+        idx += 1;
+    }
+
+    let table_name = tokens.get(idx)?.trim_end_matches(';').to_lowercase();
+    idx += 1;
+
+    let mut body_tokens: Vec<String> = tokens[idx..]
+        .iter()
+        .map(|t| t.trim_end_matches(';').to_string())
+        .collect();
+    let has_permissions = body_tokens
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case("PERMISSIONS"));
+
+    // SurrealDB defaults FIELD permissions to FULL when omitted.
+    if !has_permissions {
+        body_tokens.push("PERMISSIONS".to_string());
+        body_tokens.push("FULL".to_string());
+    }
+
+    let body = body_tokens.join(" ");
+    if body.is_empty() {
+        Some(format!("DEFINE FIELD {} ON {}", field_name, table_name))
+    } else {
+        Some(format!(
+            "DEFINE FIELD {} ON {} {}",
+            field_name, table_name, body
+        ))
+    }
+}
+
+fn field_definitions_equivalent(desired: &str, live: &str) -> bool {
+    match (
+        parse_canonical_field_definition(desired),
+        parse_canonical_field_definition(live),
+    ) {
+        (Some(desired_def), Some(live_def)) => desired_def.eq_ignore_ascii_case(&live_def),
+        _ => desired.trim() == live.trim(),
     }
 }
 
@@ -282,8 +470,14 @@ pub async fn compute_diff(
     let db_scopes = db_info.scopes.unwrap_or_default();
     let db_accesses = db_info.accesses.unwrap_or_default();
 
-    tracing::info!("compute_diff: desired keys: {:?}", desired.keys().collect::<Vec<_>>());
-    tracing::info!("compute_diff: live tables: {:?}", db_tables.keys().collect::<Vec<_>>());
+    tracing::info!(
+        "compute_diff: desired keys: {:?}",
+        desired.keys().collect::<Vec<_>>()
+    );
+    tracing::info!(
+        "compute_diff: live tables: {:?}",
+        db_tables.keys().collect::<Vec<_>>()
+    );
     tracing::info!("compute_diff: live tables raw: {:?}", db_tables);
 
     let mut live_keys = BTreeSet::new();
@@ -312,8 +506,10 @@ pub async fn compute_diff(
                             field_name, table_name
                         ));
                         contains_destructive = true;
-                    } else if desired.get(&field_key).unwrap().definition.trim() != field_def.trim()
-                    {
+                    } else if !field_definitions_equivalent(
+                        &desired.get(&field_key).unwrap().definition,
+                        &field_def,
+                    ) {
                         diff_statements.push(format!(
                             "{};",
                             make_overwrite(&desired.get(&field_key).unwrap().definition)
@@ -371,7 +567,10 @@ pub async fn compute_diff(
         if !desired.contains_key(&table_key) {
             diff_statements.push(format!("REMOVE TABLE {};", table_name));
             contains_destructive = true;
-        } else if desired.get(&table_key).unwrap().definition.trim() != table_def.trim() {
+        } else if !table_definitions_equivalent(
+            &desired.get(&table_key).unwrap().definition,
+            &table_def,
+        ) {
             diff_statements.push(format!(
                 "{};",
                 make_overwrite(&desired.get(&table_key).unwrap().definition)
@@ -380,7 +579,7 @@ pub async fn compute_diff(
     }
 
     // Process scopes/accesses
-    let merged_access = db_scopes.into_iter().chain(db_accesses.into_iter());
+    let merged_access = db_scopes.into_iter().chain(db_accesses);
     for (access_name, access_def) in merged_access {
         let access_key = format!("access:{}", access_name);
         live_keys.insert(access_key.clone());
@@ -407,4 +606,75 @@ pub async fn compute_diff(
     }
 
     Ok((diff_statements, contains_destructive))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{field_definitions_equivalent, make_overwrite, table_definitions_equivalent};
+
+    #[test]
+    fn table_definitions_treat_default_type_and_permissions_as_equivalent() {
+        let desired = "DEFINE TABLE person SCHEMAFULL";
+        let live = "DEFINE TABLE person TYPE NORMAL SCHEMAFULL PERMISSIONS NONE";
+        assert!(table_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn table_definitions_treat_omitted_schema_clauses_as_wildcards() {
+        let desired = "DEFINE TABLE person";
+        let live = "DEFINE TABLE person TYPE RELATION SCHEMALESS PERMISSIONS FULL";
+        assert!(table_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn table_definitions_detect_schema_mode_change() {
+        let desired = "DEFINE TABLE person SCHEMALESS";
+        let live = "DEFINE TABLE person TYPE NORMAL SCHEMAFULL PERMISSIONS NONE";
+        assert!(!table_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn table_definitions_detect_non_default_permissions_change() {
+        let desired = "DEFINE TABLE person SCHEMAFULL PERMISSIONS FULL";
+        let live = "DEFINE TABLE person TYPE NORMAL SCHEMAFULL PERMISSIONS NONE";
+        assert!(!table_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn field_definitions_treat_missing_permissions_full_as_equivalent() {
+        let desired = "DEFINE FIELD name ON TABLE person TYPE string";
+        let live = "DEFINE FIELD name ON person TYPE string PERMISSIONS FULL";
+        assert!(field_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn field_definitions_detect_non_default_permissions_change() {
+        let desired = "DEFINE FIELD name ON TABLE person TYPE string";
+        let live = "DEFINE FIELD name ON person TYPE string PERMISSIONS NONE";
+        assert!(!field_definitions_equivalent(desired, live));
+    }
+
+    #[test]
+    fn make_overwrite_supports_any_define_kind() {
+        let stmt = "DEFINE MODULE mod::math AS f\"math:/math.surli\"";
+        assert_eq!(
+            make_overwrite(stmt),
+            "DEFINE MODULE OVERWRITE mod::math AS f\"math:/math.surli\""
+        );
+    }
+
+    #[test]
+    fn make_overwrite_replaces_if_not_exists() {
+        let stmt = "DEFINE TABLE IF NOT EXISTS person SCHEMAFULL";
+        assert_eq!(
+            make_overwrite(stmt),
+            "DEFINE TABLE OVERWRITE person SCHEMAFULL"
+        );
+    }
+
+    #[test]
+    fn make_overwrite_is_noop_for_non_define() {
+        let stmt = "REMOVE FIELD name ON TABLE person";
+        assert_eq!(make_overwrite(stmt), stmt);
+    }
 }
