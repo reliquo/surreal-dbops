@@ -62,6 +62,7 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
                         namespace: Some(schema_namespace.clone()),
                     },
                     generation,
+                    desired_schema: interpolated_schema.clone(),
                 },
             );
 
@@ -79,7 +80,7 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
             rollout_api
                 .create(&PostParams::default(), &rollout)
                 .await
-                .map_err(|e| Error::KubeError(e))?;
+                .map_err(Error::KubeError)?;
         }
         Err(e) => {
             return Err(Error::KubeError(e));
@@ -100,7 +101,7 @@ pub async fn reconcile(schema: Arc<Schema>, ctx: Arc<Context>) -> Result<Action>
     )
     .await?;
 
-    Ok(Action::requeue(Duration::from_secs(300)))
+    Ok(Action::await_change())
 }
 
 /// Error handler for Schema reconciler.
@@ -163,13 +164,19 @@ async fn update_status(
     hash: Option<String>,
     rollout_name: Option<String>,
 ) -> Result<()> {
+    let new_status = SchemaStatus {
+        current_version_hash: hash,
+        active_rollout_name: rollout_name,
+        observed_generation: schema.metadata.generation,
+    };
+
+    if schema.status.as_ref() == Some(&new_status) {
+        return Ok(());
+    }
+
     let api: Api<Schema> = Api::namespaced(client.clone(), namespace);
     let patch = json!({
-        "status": SchemaStatus {
-            current_version_hash: hash,
-            active_rollout_name: rollout_name,
-            observed_generation: schema.metadata.generation,
-        }
+        "status": new_status
     });
 
     api.patch_status(

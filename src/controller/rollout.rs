@@ -15,6 +15,65 @@ use crate::crd::{
 };
 use crate::surreal::{compute_diff, connect_instance};
 
+fn is_overwrite_only_diff(diff_statements: &[String]) -> bool {
+    !diff_statements.is_empty()
+        && diff_statements
+            .iter()
+            .all(|stmt| stmt.to_uppercase().contains(" OVERWRITE"))
+}
+
+fn should_suppress_repeated_overwrite_diff(
+    diff_statements: &[String],
+    previous_diff: &str,
+    previous_phase: Option<&str>,
+    previous_applied_databases: usize,
+    previous_failed_databases: usize,
+) -> bool {
+    if !is_overwrite_only_diff(diff_statements) {
+        return false;
+    }
+
+    let initial_diff_query = diff_statements.join("\n");
+    initial_diff_query == previous_diff
+        && previous_applied_databases > 0
+        && previous_failed_databases == 0
+        && matches!(previous_phase, Some("Progressing"))
+}
+
+fn is_fully_completed(rollout: &Rollout) -> bool {
+    matches!(
+        rollout.status.as_ref().and_then(|s| s.phase.as_deref()),
+        Some("Completed")
+    )
+}
+
+fn rollout_desired_schema_snapshot(rollout: &Rollout) -> Option<String> {
+    let desired = rollout.spec.desired_schema.trim();
+    if desired.is_empty() {
+        None
+    } else {
+        Some(rollout.spec.desired_schema.clone())
+    }
+}
+
+async fn backfill_desired_schema_snapshot(
+    client: &Client,
+    namespace: &str,
+    rollout_name: &str,
+    desired_schema: &str,
+) -> Result<()> {
+    let api: Api<Rollout> = Api::namespaced(client.clone(), namespace);
+    let patch = json!({
+        "spec": {
+            "desiredSchema": desired_schema,
+        }
+    });
+    api.patch(rollout_name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .map_err(Error::KubeError)?;
+    Ok(())
+}
+
 /// Reconciles a Rollout resource.
 pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Action> {
     let client = &ctx.client;
@@ -24,19 +83,6 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
         .ok_or_else(|| Error::InternalError("Rollout is cluster-scoped".to_string()))?;
 
     info!("Reconciling Rollout {}/{}", rollout_namespace, rollout_name);
-
-    // 0. Skip reconciliation if rollout is already in a terminal state
-    if let Some(ref status) = rollout.status {
-        if status.phase == Some("Completed".to_string())
-            || status.phase == Some("Failed".to_string())
-        {
-            info!(
-                "Rollout {}/{} is already in terminal state ({:?}), skipping reconciliation",
-                rollout_namespace, rollout_name, status.phase
-            );
-            return Ok(Action::await_change());
-        }
-    }
 
     // 1. Fetch the target Schema
     let resolved_schema_ns = resolve_namespace(&rollout.spec.schema_ref, &rollout_namespace);
@@ -53,16 +99,109 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
         }
     };
 
-    // 2. Resolve fully rendered desired schema
-    let desired_schema_text =
+    // Enforce strict rollout ordering: a newer generation must wait for all
+    // earlier generations of the same schema to fully complete.
+    let rollout_api: Api<Rollout> = Api::namespaced(client.clone(), &rollout_namespace);
+    let older_rollouts = rollout_api
+        .list(&ListParams::default().labels(&format!("schema={}", rollout.spec.schema_ref.name)))
+        .await
+        .map_err(Error::KubeError)?
+        .items
+        .into_iter()
+        .filter(|r| r.name_any() != rollout_name)
+        .filter(|r| {
+            let r_ns = r.namespace().unwrap_or_default();
+            let ref_schema_ns = resolve_namespace(&r.spec.schema_ref, &r_ns);
+            r.spec.schema_ref.name == rollout.spec.schema_ref.name
+                && ref_schema_ns == resolved_schema_ns
+                && r.spec.generation < rollout.spec.generation
+        })
+        .collect::<Vec<_>>();
+
+    let pending_older: Vec<String> = older_rollouts
+        .iter()
+        .filter(|r| !is_fully_completed(r))
+        .map(|r| {
+            format!(
+                "{}(gen={},phase={})",
+                r.name_any(),
+                r.spec.generation,
+                r.status
+                    .as_ref()
+                    .and_then(|s| s.phase.clone())
+                    .unwrap_or_else(|| "Unknown".to_string())
+            )
+        })
+        .collect();
+
+    if !pending_older.is_empty() {
+        let mut status = rollout.status.clone().unwrap_or_default();
+        status.phase = Some("Blocked".to_string());
+        update_condition(
+            &mut status.conditions,
+            Condition {
+                r#type: "Progressing".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "WaitingForPriorRollouts".to_string(),
+                message: format!(
+                    "Waiting for prior rollouts to complete before generation {}: {}",
+                    rollout.spec.generation,
+                    pending_older.join(", ")
+                ),
+            },
+        );
+        patch_status(
+            &rollout_name,
+            &rollout_namespace,
+            client,
+            &rollout.status,
+            &status,
+        )
+        .await?;
+        info!(
+            "Rollout {}/{} blocked waiting for prior generations: {}",
+            rollout_namespace,
+            rollout_name,
+            pending_older.join(", ")
+        );
+        return Ok(Action::requeue(Duration::from_secs(10)));
+    }
+
+    // 2. Resolve desired schema snapshot for this rollout generation.
+    // New rollouts persist desired_schema in spec; older resources may not have
+    // it yet, so keep a compatibility fallback.
+    let desired_schema_text = if let Some(snapshot) = rollout_desired_schema_snapshot(&rollout) {
+        snapshot
+    } else {
+        warn!(
+            "Rollout {}/{} has empty desired_schema; falling back to current Schema interpolation",
+            rollout_namespace, rollout_name
+        );
         match resolve_and_interpolate_schema(client, &schema, &resolved_schema_ns).await {
-            Ok(text) => text,
+            Ok(text) => {
+                if let Err(e) = backfill_desired_schema_snapshot(
+                    client,
+                    &rollout_namespace,
+                    &rollout_name,
+                    &text,
+                )
+                .await
+                {
+                    warn!(
+                        "Failed to backfill desired_schema for Rollout {}/{}: {}",
+                        rollout_namespace, rollout_name, e
+                    );
+                }
+                text
+            }
             Err(e) => {
                 let err_msg = format!("Failed to resolve and interpolate schema text: {}", e);
                 error!("{}", err_msg);
                 return Ok(Action::requeue(Duration::from_secs(30)));
             }
-        };
+        }
+    };
 
     // 3. Find all Databases referencing this Schema
     let db_api: Api<Database> = Api::all(client.clone());
@@ -85,6 +224,37 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
         "Found {} databases affected by rollout {}",
         affected_count, rollout_name
     );
+
+    // Early short-circuit if rollout is already Completed and no databases are behind this generation
+    let is_completed =
+        rollout.status.as_ref().and_then(|s| s.phase.as_deref()) == Some("Completed");
+    if is_completed {
+        let has_pending = affected_databases.iter().any(|db| {
+            db.status
+                .as_ref()
+                .and_then(|s| s.applied_schema_generation)
+                .map(|gen| gen < rollout.spec.generation)
+                .unwrap_or(true)
+        });
+        let no_failures = rollout
+            .status
+            .as_ref()
+            .map(|s| s.failed_databases == 0)
+            .unwrap_or(true);
+        let same_affected_count = rollout
+            .status
+            .as_ref()
+            .map(|s| s.affected_databases == affected_count)
+            .unwrap_or(false);
+
+        if !has_pending && no_failures && same_affected_count {
+            info!(
+                "Rollout {}/{} is already Completed and all databases are up-to-date; skipping reconciliation",
+                rollout_namespace, rollout_name
+            );
+            return Ok(Action::await_change());
+        }
+    }
 
     // 3a. Ensure Rollout has the correct OwnerReferences (Schema as controller, Databases as non-controllers)
     let mut expected_owners = Vec::new();
@@ -168,8 +338,14 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
     }
 
     // 4. Compute Schema Diff using the first database (if any exist and are ready)
+    let previous_diff = status.diff.clone().unwrap_or_default();
+    let previous_phase = status.phase.clone();
+    let previous_applied_databases = status.applied_databases;
+    let previous_failed_databases = status.failed_databases;
+
     let mut diff_statements = Vec::new();
     let mut destructive = false;
+    let mut diff_error: Option<String> = None;
 
     if let Some(target_db) = affected_databases.first() {
         let db_ns = target_db.namespace().unwrap_or_default();
@@ -178,47 +354,112 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
                 // Connect to the specific DB
                 let ns_ref_ns = resolve_namespace(&target_db.spec.namespace_ref, &db_ns);
                 let ns_api: Api<Namespace> = Api::namespaced(client.clone(), &ns_ref_ns);
-                if let Ok(ns) = ns_api.get(&target_db.spec.namespace_ref.name).await {
-                    if let Err(e) = db_client
-                        .use_ns(ns.name_any())
-                        .use_db(target_db.name_any())
-                        .await
-                    {
-                        warn!(
-                            "Failed to use namespace {} and database {}: {}",
-                            ns.name_any(),
-                            target_db.name_any(),
-                            e
-                        );
-                    }
-
-                    match compute_diff(&db_client, &desired_schema_text).await {
-                        Ok((statements, is_destructive)) => {
-                            diff_statements = statements;
-                            destructive = is_destructive;
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to compute diff against database {}: {}",
+                match ns_api.get(&target_db.spec.namespace_ref.name).await {
+                    Ok(ns) => {
+                        if let Err(e) = db_client
+                            .use_ns(ns.name_any())
+                            .use_db(target_db.name_any())
+                            .await
+                        {
+                            diff_error = Some(format!(
+                                "Failed to select namespace {} and database {} before diff: {}",
+                                ns.name_any(),
                                 target_db.name_any(),
                                 e
-                            );
+                            ));
+                        } else {
+                            match compute_diff(&db_client, &desired_schema_text).await {
+                                Ok((statements, is_destructive)) => {
+                                    diff_statements = statements;
+                                    destructive = is_destructive;
+                                }
+                                Err(e) => {
+                                    diff_error = Some(format!(
+                                        "Failed to compute diff against database {}: {}",
+                                        target_db.name_any(),
+                                        e
+                                    ));
+                                }
+                            }
                         }
+                    }
+                    Err(e) => {
+                        diff_error = Some(format!(
+                            "Failed to fetch Namespace {} for diff computation: {}",
+                            target_db.spec.namespace_ref.name, e
+                        ));
                     }
                 }
             }
             Err(e) => {
-                warn!(
+                diff_error = Some(format!(
                     "Failed to connect to database {} to calculate diff: {}",
                     target_db.name_any(),
                     e
-                );
+                ));
             }
         }
     }
 
+    if should_suppress_repeated_overwrite_diff(
+        &diff_statements,
+        &previous_diff,
+        previous_phase.as_deref(),
+        previous_applied_databases,
+        previous_failed_databases,
+    ) {
+        // Guard against endless no-op overwrite loops when live introspection keeps
+        // rendering semantically equivalent definitions differently.
+        info!(
+            "Rollout {}/{} suppressing repeated identical overwrite-only diff after prior successful progress",
+            rollout_namespace,
+            rollout_name
+        );
+        diff_statements.clear();
+    }
+
     status.diff = Some(diff_statements.join("\n"));
     status.destructive = destructive;
+
+    if let Some(err_msg) = diff_error {
+        warn!("{}", err_msg);
+        status.destructive = true;
+        status.phase = Some("Blocked".to_string());
+        update_condition(
+            &mut status.conditions,
+            Condition {
+                r#type: "Approved".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "DiffUnavailable".to_string(),
+                message: "Unable to safely compute schema diff. Manual approval is required."
+                    .to_string(),
+            },
+        );
+        update_condition(
+            &mut status.conditions,
+            Condition {
+                r#type: "Progressing".to_string(),
+                status: "False".to_string(),
+                last_transition_time: Utc::now().to_rfc3339(),
+                reason: "Blocked".to_string(),
+                message: err_msg,
+            },
+        );
+        patch_status(
+            &rollout_name,
+            &rollout_namespace,
+            client,
+            &rollout.status,
+            &status,
+        )
+        .await?;
+        info!(
+            "Rollout {} is Blocked because schema diff could not be computed safely",
+            rollout_name
+        );
+        return Ok(Action::requeue(Duration::from_secs(15)));
+    }
 
     // 5. Evaluate Approval Policy
     let policy = schema
@@ -228,25 +469,39 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
     let approval_required = match policy {
         ApprovalPolicy::None => false,
         ApprovalPolicy::All => true,
+        // Require approval for explicit destructive removals.
         ApprovalPolicy::Destructive => destructive,
     };
+
+    let diff_query = diff_statements.join("\n");
+    if diff_query.is_empty() {
+        info!(
+            "Rollout {}/{} computed empty diff (destructive={}, approval_required={})",
+            rollout_namespace, rollout_name, destructive, approval_required
+        );
+    } else {
+        info!(
+            "Rollout {}/{} computed diff (destructive={}, approval_required={}):\n{}",
+            rollout_namespace, rollout_name, destructive, approval_required, diff_query
+        );
+    }
 
     // Read Mutating webhook/annotations approval values
     let is_annotated_approved = rollout
         .metadata
         .annotations
         .as_ref()
-        .and_then(|a| a.get("database.reliquo.io/approved"))
+        .and_then(|a| a.get("surreal-dbops.reliquo.io/approved"))
         .map(|val| val == "true")
         .unwrap_or(false);
 
     if is_annotated_approved {
         status.approved = true;
         if let Some(ref annotations) = rollout.metadata.annotations {
-            if let Some(approver) = annotations.get("database.reliquo.io/approved-by") {
+            if let Some(approver) = annotations.get("surreal-dbops.reliquo.io/approved-by") {
                 status.approved_by = Some(approver.clone());
             }
-            if let Some(time) = annotations.get("database.reliquo.io/approved-at") {
+            if let Some(time) = annotations.get("surreal-dbops.reliquo.io/approved-at") {
                 status.approved_at = Some(time.clone());
             }
         }
@@ -320,13 +575,13 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
 
     let concurrency = schema.spec.concurrency_limit.unwrap_or(50);
 
-    // We filter out databases that have already applied this generation of the schema
+    // We filter out databases that have already applied this generation (or a newer generation) of the schema
     let pending_databases: Vec<Database> = affected_databases
         .into_iter()
         .filter(|db| {
             if let Some(ref db_status) = db.status {
                 if let Some(gen) = db_status.applied_schema_generation {
-                    if gen == rollout.spec.generation {
+                    if gen >= rollout.spec.generation {
                         return false;
                     }
                 }
@@ -336,6 +591,16 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
         .collect();
 
     let completed_count = affected_count - pending_databases.len();
+
+    // If this rollout already reached completion and there is no pending work
+    // for the current generation, avoid status churn and repeated reconciles.
+    if pending_databases.is_empty()
+        && status.failed_databases == 0
+        && status.phase.as_deref() == Some("Completed")
+    {
+        return Ok(Action::await_change());
+    }
+
     status.applied_databases = completed_count;
     patch_status(
         &rollout_name,
@@ -358,7 +623,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
     let mut stream = futures::stream::iter(pending_databases)
         .map(|db| {
             let client = db_client_cloned.clone();
-            let query = diff_statements.join("\n");
+            let query = diff_query.clone();
             let gen = rollout_spec_gen;
             let hash = schema_hash.clone();
             async move {
@@ -462,6 +727,85 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
 pub fn error_policy(_rollout: Arc<Rollout>, error: &Error, _ctx: Arc<Context>) -> Action {
     error!("Rollout reconciliation failed: {:?}", error);
     Action::requeue(Duration::from_secs(15))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rollout_desired_schema_snapshot, should_suppress_repeated_overwrite_diff};
+    use crate::crd::{LocalObjectReference, Rollout, RolloutSpec};
+
+    fn mock_rollout_with_desired_schema(desired_schema: &str) -> Rollout {
+        Rollout::new(
+            "rollout-test",
+            RolloutSpec {
+                schema_ref: LocalObjectReference {
+                    name: "schema-a".to_string(),
+                    namespace: Some("test-ns".to_string()),
+                },
+                generation: 1,
+                desired_schema: desired_schema.to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn suppresses_repeated_identical_overwrite_only_diff_after_progress() {
+        let diff_statements = vec![
+            "DEFINE TABLE OVERWRITE person SCHEMAFULL;".to_string(),
+            "DEFINE FIELD OVERWRITE name ON TABLE person TYPE string;".to_string(),
+        ];
+        let previous_diff = diff_statements.join("\n");
+
+        assert!(should_suppress_repeated_overwrite_diff(
+            &diff_statements,
+            &previous_diff,
+            Some("Progressing"),
+            1,
+            0,
+        ));
+    }
+
+    #[test]
+    fn does_not_suppress_when_previous_failures_exist() {
+        let diff_statements = vec!["DEFINE TABLE OVERWRITE person SCHEMAFULL;".to_string()];
+        let previous_diff = diff_statements.join("\n");
+
+        assert!(!should_suppress_repeated_overwrite_diff(
+            &diff_statements,
+            &previous_diff,
+            Some("Progressing"),
+            1,
+            1,
+        ));
+    }
+
+    #[test]
+    fn does_not_suppress_non_overwrite_diff() {
+        let diff_statements = vec!["REMOVE FIELD name ON TABLE person;".to_string()];
+
+        assert!(!should_suppress_repeated_overwrite_diff(
+            &diff_statements,
+            "REMOVE FIELD name ON TABLE person;",
+            Some("Progressing"),
+            1,
+            0,
+        ));
+    }
+
+    #[test]
+    fn desired_schema_snapshot_is_used_when_present() {
+        let rollout = mock_rollout_with_desired_schema("DEFINE TABLE person SCHEMAFULL;");
+        assert_eq!(
+            rollout_desired_schema_snapshot(&rollout).as_deref(),
+            Some("DEFINE TABLE person SCHEMAFULL;")
+        );
+    }
+
+    #[test]
+    fn desired_schema_snapshot_absent_when_blank() {
+        let rollout = mock_rollout_with_desired_schema("  \n  ");
+        assert!(rollout_desired_schema_snapshot(&rollout).is_none());
+    }
 }
 
 /// Helper function to verify health of a target database and its dependency chain (Namespace -> Instance)
@@ -661,10 +1005,9 @@ async fn apply_schema_to_db(
 
     // Execute within transaction
     let transaction_query = format!("BEGIN TRANSACTION;\n{}\nCOMMIT TRANSACTION;", query);
-    let response = db_client
-        .query(&transaction_query)
-        .await
-        .map_err(|e| Error::SurrealError(format!("Failed to apply schema transaction query: {}", e)))?;
+    let response = db_client.query(&transaction_query).await.map_err(|e| {
+        Error::SurrealError(format!("Failed to apply schema transaction query: {}", e))
+    })?;
     response
         .check()
         .map_err(|e| Error::SurrealError(format!("Failed to apply schema transaction: {}", e)))?;

@@ -1,5 +1,4 @@
 use futures::StreamExt;
-use kube::api::ListParams;
 use kube::runtime::Controller;
 use kube::{Api, Client};
 use std::net::SocketAddr;

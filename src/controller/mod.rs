@@ -6,7 +6,6 @@ pub mod schema;
 pub mod utils;
 
 use kube::Client;
-use std::sync::Arc;
 use thiserror::Error;
 
 /// Context passed to each controller reconciliation loop.
