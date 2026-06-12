@@ -69,6 +69,10 @@ jobs:
         run: |
           # Strip leading 'v' from the git tag to get semver version
           VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo add surrealdb https://helm.surrealdb.com
+          helm repo update
+          helm dependency build charts/surreal-dbops
           helm package charts/surreal-dbops --version "$VERSION" --app-version "$VERSION"
 
       - name: Push Helm Chart OCI Package to GHCR
