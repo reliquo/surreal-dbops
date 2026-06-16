@@ -63,7 +63,10 @@ jobs:
           fi
           
           # Stage changes for commit action
-          git add .
+          git add Cargo.toml Cargo.lock
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            git add charts/surreal-dbops/Chart.yaml
+          fi
 
       - name: Commit version bumps
         uses: dsanders11/github-app-commit-action@v2.1.0
