@@ -1,0 +1,84 @@
+name: Version
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  bump:
+    name: Calculate and Bump Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.RELIQUO_CI_CLIENT_ID }}
+          private-key: ${{ secrets.RELIQUO_CI_PRIVATE_KEY }}
+          owner: "reliquo"
+          repositories: "surreal-dbops"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Calculate next version (dry run)
+        id: semantic_dry
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry: true
+
+      - name: Bump version files
+        id: bump_version
+        if: steps.semantic_dry.outputs.version != ''
+        run: |
+          NEW_VERSION="${{ steps.semantic_dry.outputs.version }}"
+          echo "Bumping versions to $NEW_VERSION"
+          
+          # Bump Cargo.toml version
+          sed -i 's/^version = "[^"]*"/version = "'"$NEW_VERSION"'"/' Cargo.toml
+          cargo check
+          
+          # Bump Chart.yaml version & appVersion
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            sed -i 's/^version: .*/version: '"$NEW_VERSION"'/' charts/surreal-dbops/Chart.yaml
+            sed -i 's/^appVersion: .*/appVersion: "'"$NEW_VERSION"'"/' charts/surreal-dbops/Chart.yaml
+          fi
+          
+          # Stage changes for commit action
+          git add Cargo.toml Cargo.lock
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            git add charts/surreal-dbops/Chart.yaml
+          fi
+
+      - name: Commit version bumps
+        uses: dsanders11/github-app-commit-action@v2.1.0
+        if: steps.semantic_dry.outputs.version != ''
+        with:
+          owner: reliquo
+          repository: surreal-dbops
+          message: |
+            chore(release): bump version to ${{ steps.semantic_dry.outputs.version }} [skip ci]
+          token: ${{ steps.generate_token.outputs.token }}
+
+      - name: Run semantic-release
+        id: semantic
+        if: steps.semantic_dry.outputs.version != ''
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
