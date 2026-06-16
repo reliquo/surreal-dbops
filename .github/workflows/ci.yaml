@@ -10,35 +10,67 @@ permissions:
   pull-requests: write
 
 jobs:
-  fmt:
-    name: Format / Rust
+  changes:
+    name: Check for Changes
     runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+      helm: ${{ steps.filter.outputs.helm }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
 
+      - name: Path Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'src/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Dockerfile'
+            helm:
+              - 'charts/**'
+
+  fmt:
+    name: Format / Rust
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        if: needs.changes.outputs.src == 'true'
+        uses: actions/checkout@v6.0.2
+
       - name: Install Rust toolchain
+        if: needs.changes.outputs.src == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
         with:
           toolchain: nightly
           components: rustfmt
 
       - name: Format check
+        if: needs.changes.outputs.src == 'true'
         uses: clechasseur/rs-fmt-check@v4.0.4
 
   clippy:
     name: Lint / Rust
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        if: needs.changes.outputs.src == 'true'
         uses: actions/checkout@v6.0.2
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.src == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
         with:
           components: clippy
 
       - name: Cache cargo registry and build
+        if: needs.changes.outputs.src == 'true'
         uses: actions/cache@v5.0.5
         with:
           path: |
@@ -48,24 +80,30 @@ jobs:
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Clippy check
+        if: needs.changes.outputs.src == 'true'
         uses: clechasseur/rs-clippy-check@v6.0.4
         with:
           args: --all-features
 
   test:
     name: Test / Rust
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        if: needs.changes.outputs.src == 'true'
         uses: actions/checkout@v6.0.2
 
       - name: Install cargo reporter
+        if: needs.changes.outputs.src == 'true'
         uses: olix0r/cargo-action-fmt/setup@v2
 
       - name: Install Rust toolchain
+        if: needs.changes.outputs.src == 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
 
       - name: Cache cargo registry and build
+        if: needs.changes.outputs.src == 'true'
         uses: actions/cache@v5.0.5
         with:
           path: |
@@ -75,32 +113,41 @@ jobs:
           key: ${{ runner.os }}-cargo-tests-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build tests
+        if: needs.changes.outputs.src == 'true'
         run: cargo test --no-run --message-format=json | cargo-action-fmt
 
       - name: Run unit tests
+        if: needs.changes.outputs.src == 'true'
         run: cargo test --lib --bins
 
   helm:
     name: Lint / Helm
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        if: needs.changes.outputs.helm == 'true'
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
       - name: Set up Helm
+        if: needs.changes.outputs.helm == 'true'
         uses: azure/setup-helm@v5.0.0
 
-      - uses: actions/setup-python@v6.0.0
+      - name: Set up Python
+        if: needs.changes.outputs.helm == 'true'
+        uses: actions/setup-python@v6.0.0
         with:
           python-version: '3.x'
           check-latest: true
 
       - name: Set up chart-testing
+        if: needs.changes.outputs.helm == 'true'
         uses: helm/chart-testing-action@v2.8.0
 
       - name: Run chart-testing (list-changed)
+        if: needs.changes.outputs.helm == 'true'
         id: list-changed
         run: |
           changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }} --config .github/ct.yaml)
@@ -109,11 +156,12 @@ jobs:
           fi
 
       - name: Run chart-testing (lint)
-        if: steps.list-changed.outputs.changed == 'true'
+        if: needs.changes.outputs.helm == 'true' && steps.list-changed.outputs.changed == 'true'
         run: ct lint --target-branch ${{ github.event.repository.default_branch }} --config .github/ct.yaml
 
   e2e:
     name: Test / End-to-End
+    needs: changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -122,26 +170,32 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout code
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: actions/checkout@v6.0.2
 
       - name: Set up Helm
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: azure/setup-helm@v5.0.0
 
       - name: Install Chainsaw
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: kyverno/action-install-chainsaw@v0.1.0
         with:
           release: v0.2.15
 
       - name: Set up KIND Command Line
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: helm/kind-action@v1.14.0
         with:
           cluster_name: surreal-dbops-tests
           wait: 120s
 
       - name: Set up Docker Buildx
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: docker/setup-buildx-action@v4.1.0
 
       - name: Build operator image (cached)
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         uses: docker/build-push-action@v7.2.0
         with:
           context: .
@@ -153,9 +207,11 @@ jobs:
           cache-to: type=gha,mode=max,scope=surreal-dbops-operator-image
 
       - name: Load operator image into KIND
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         run: kind load docker-image ghcr.io/reliquo/surreal-dbops:latest --name surreal-dbops-tests
 
       - name: Preinstall dependencies
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         run: |
           echo "::group::Adding repositories"
           helm repo add jetstack https://charts.jetstack.io
@@ -192,6 +248,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Install surreal-dbops chart
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         run: |
           helm dependency build charts/surreal-dbops
           helm upgrade --install surreal-dbops-e2e ./charts/surreal-dbops \
@@ -204,9 +261,11 @@ jobs:
           kubectl wait --for=condition=Available deployment/surreal-dbops-e2e -n reliquo-system --timeout=180s
 
       - name: Create test results directory
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         run: mkdir -p test-results
 
       - name: Run Chainsaw Tests
+        if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
         id: chainsaw
         run: |
           chainsaw test \
@@ -216,7 +275,7 @@ jobs:
 
       - name: Detect Chainsaw report
         id: chainsaw_report
-        if: (!cancelled())
+        if: (needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true') && (!cancelled())
         run: |
           if [[ -f test-results/chainsaw-report.xml ]]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -226,6 +285,6 @@ jobs:
 
       - name: Test Summary
         uses: test-summary/action@v2
-        if: (!cancelled())
+        if: (needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true') && (!cancelled())
         with:
           paths: "test-results/chainsaw-report.xml"

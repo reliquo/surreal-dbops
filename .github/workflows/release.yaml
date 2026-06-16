@@ -45,7 +45,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           dry: true
-
       - name: Bump version files
         id: bump_version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.semantic_dry.outputs.version != ''
@@ -61,6 +60,12 @@ jobs:
           if [ -f charts/surreal-dbops/Chart.yaml ]; then
             sed -i 's/^version: .*/version: '"$NEW_VERSION"'/' charts/surreal-dbops/Chart.yaml
             sed -i 's/^appVersion: .*/appVersion: "'"$NEW_VERSION"'"/' charts/surreal-dbops/Chart.yaml
+          fi
+          
+          # Stage changes for commit action
+          git add Cargo.toml Cargo.lock
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            git add charts/surreal-dbops/Chart.yaml
           fi
 
       - name: Commit version bumps
