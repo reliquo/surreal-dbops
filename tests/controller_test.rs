@@ -296,7 +296,11 @@ mod controller_tests {
         mock_namespace_val_with_spec_name(name, instance_name, None)
     }
 
-    fn mock_namespace_val_with_spec_name(name: &str, instance_name: &str, spec_name: Option<&str>) -> Value {
+    fn mock_namespace_val_with_spec_name(
+        name: &str,
+        instance_name: &str,
+        spec_name: Option<&str>,
+    ) -> Value {
         let mut val = json!({
             "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Namespace",
@@ -320,7 +324,12 @@ mod controller_tests {
         mock_database_val_with_spec_name(name, ns_name, schema_name, None)
     }
 
-    fn mock_database_val_with_spec_name(name: &str, ns_name: &str, schema_name: &str, spec_name: Option<&str>) -> Value {
+    fn mock_database_val_with_spec_name(
+        name: &str,
+        ns_name: &str,
+        schema_name: &str,
+        spec_name: Option<&str>,
+    ) -> Value {
         let mut val = json!({
             "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Database",
@@ -1012,7 +1021,11 @@ mod controller_tests {
                 .unwrap()
                 .insert("instnscustom".to_string(), inst_val);
 
-            let ns_val = mock_namespace_val_with_spec_name("nsnscustom", "instnscustom", Some("my-custom-ns-name"));
+            let ns_val = mock_namespace_val_with_spec_name(
+                "nsnscustom",
+                "instnscustom",
+                Some("my-custom-ns-name"),
+            );
             state
                 .namespaces
                 .lock()
@@ -1039,7 +1052,11 @@ mod controller_tests {
                 .unwrap()
                 .insert("instdbcustom".to_string(), inst_val);
 
-            let mut ns_val = mock_namespace_val_with_spec_name("nsdbcustom", "instdbcustom", Some("my-custom-ns-name"));
+            let mut ns_val = mock_namespace_val_with_spec_name(
+                "nsdbcustom",
+                "instdbcustom",
+                Some("my-custom-ns-name"),
+            );
             ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
             state
                 .namespaces
@@ -1047,7 +1064,12 @@ mod controller_tests {
                 .unwrap()
                 .insert("nsdbcustom".to_string(), ns_val);
 
-            let db_val = mock_database_val_with_spec_name("dbdbcustom", "nsdbcustom", "schemadbcustom", Some("my-custom-db-name"));
+            let db_val = mock_database_val_with_spec_name(
+                "dbdbcustom",
+                "nsdbcustom",
+                "schemadbcustom",
+                Some("my-custom-db-name"),
+            );
             state
                 .databases
                 .lock()

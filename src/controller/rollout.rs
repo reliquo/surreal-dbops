@@ -359,7 +359,11 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
                         let ns_name_any = ns.name_any();
                         let target_db_name_any = target_db.name_any();
                         let resolved_ns_name = ns.spec.name.as_deref().unwrap_or(&ns_name_any);
-                        let resolved_db_name = target_db.spec.name.as_deref().unwrap_or(&target_db_name_any);
+                        let resolved_db_name = target_db
+                            .spec
+                            .name
+                            .as_deref()
+                            .unwrap_or(&target_db_name_any);
                         if let Err(e) = db_client
                             .use_ns(resolved_ns_name)
                             .use_db(resolved_db_name)
@@ -367,9 +371,7 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
                         {
                             diff_error = Some(format!(
                                 "Failed to select namespace {} and database {} before diff: {}",
-                                resolved_ns_name,
-                                resolved_db_name,
-                                e
+                                resolved_ns_name, resolved_db_name, e
                             ));
                         } else {
                             match compute_diff(&db_client, &desired_schema_text).await {
@@ -1009,7 +1011,12 @@ async fn apply_schema_to_db(
         .use_ns(resolved_ns_name)
         .use_db(resolved_db_name)
         .await
-        .map_err(|e| Error::SurrealError(format!("Failed to select NS/DB ({} / {}): {}", resolved_ns_name, resolved_db_name, e)))?;
+        .map_err(|e| {
+            Error::SurrealError(format!(
+                "Failed to select NS/DB ({} / {}): {}",
+                resolved_ns_name, resolved_db_name, e
+            ))
+        })?;
 
     // Execute within transaction
     let transaction_query = format!("BEGIN TRANSACTION;\n{}\nCOMMIT TRANSACTION;", query);
