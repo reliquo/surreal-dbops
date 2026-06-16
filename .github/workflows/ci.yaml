@@ -10,8 +10,35 @@ permissions:
   pull-requests: write
 
 jobs:
+  changes:
+    name: Check for Changes
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+      helm: ${{ steps.filter.outputs.helm }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
+
+      - name: Path Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'src/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Dockerfile'
+              - '.github/workflows/ci.yaml'
+            helm:
+              - 'charts/**'
+
   fmt:
     name: Format / Rust
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -28,6 +55,8 @@ jobs:
 
   clippy:
     name: Lint / Rust
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -54,6 +83,8 @@ jobs:
 
   test:
     name: Test / Rust
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -82,6 +113,8 @@ jobs:
 
   helm:
     name: Lint / Helm
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -114,6 +147,8 @@ jobs:
 
   e2e:
     name: Test / End-to-End
+    needs: changes
+    if: needs.changes.outputs.src == 'true' || needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
