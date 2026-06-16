@@ -11,8 +11,8 @@ permissions:
   pull-requests: read
 
 jobs:
-  bump:
-    name: Calculate and Bump Version
+  version:
+    name: Calculate, Bump and Release Version
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App Token
@@ -36,49 +36,20 @@ jobs:
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
 
-      - name: Calculate next version (dry run)
-        id: semantic_dry
-        uses: go-semantic-release/action@v1
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          dry: true
+          node-version: 20
 
-      - name: Bump version files
-        id: bump_version
-        if: steps.semantic_dry.outputs.version != ''
+      - name: Install semantic-release plugins
         run: |
-          NEW_VERSION="${{ steps.semantic_dry.outputs.version }}"
-          echo "Bumping versions to $NEW_VERSION"
-          
-          # Bump Cargo.toml version
-          sed -i 's/^version = "[^"]*"/version = "'"$NEW_VERSION"'"/' Cargo.toml
-          cargo check
-          
-          # Bump Chart.yaml version & appVersion
-          if [ -f charts/surreal-dbops/Chart.yaml ]; then
-            sed -i 's/^version: .*/version: '"$NEW_VERSION"'/' charts/surreal-dbops/Chart.yaml
-            sed -i 's/^appVersion: .*/appVersion: "'"$NEW_VERSION"'"/' charts/surreal-dbops/Chart.yaml
-          fi
-          
-          # Stage changes for commit action
-          git add Cargo.toml Cargo.lock
-          if [ -f charts/surreal-dbops/Chart.yaml ]; then
-            git add charts/surreal-dbops/Chart.yaml
-          fi
-
-      - name: Commit version bumps
-        uses: dsanders11/github-app-commit-action@v2.1.0
-        if: steps.semantic_dry.outputs.version != ''
-        with:
-          owner: reliquo
-          repository: surreal-dbops
-          message: |
-            chore(release): bump version to ${{ steps.semantic_dry.outputs.version }} [skip ci]
-          token: ${{ steps.generate_token.outputs.token }}
+          npm install --no-save \
+            @semantic-release/changelog \
+            @semantic-release/git \
+            @semantic-release-cargo/semantic-release-cargo \
+            semantic-release-helm3
 
       - name: Run semantic-release
-        id: semantic
-        if: steps.semantic_dry.outputs.version != ''
-        uses: go-semantic-release/action@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        uses: codfish/semantic-release-action@v3
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
