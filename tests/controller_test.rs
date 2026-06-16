@@ -492,11 +492,21 @@ mod controller_tests {
             let db = surreal_dbops::surreal::connect_instance("mem://", "root", "rootpassword")
                 .await
                 .unwrap();
-            let mut response = db.query("USE NS `nsns-users`; INFO FOR NS;").await.unwrap().check().unwrap();
+            let mut response = db
+                .query("USE NS `nsns-users`; INFO FOR NS;")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
             let ns_info: Option<Value> = response.take(1usize).unwrap();
             let ns_info = ns_info.unwrap_or_default();
             let users = ns_info.get("users").expect("users field to be present");
-            assert!(users.get("ns_admin").is_some() || users.as_object().unwrap().keys().any(|k| k == "ns_admin"), "User ns_admin not found in NS info. Live: {:?}", users);
+            assert!(
+                users.get("ns_admin").is_some()
+                    || users.as_object().unwrap().keys().any(|k| k == "ns_admin"),
+                "User ns_admin not found in NS info. Live: {:?}",
+                users
+            );
         }
 
         // 3. Database Test
