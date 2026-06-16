@@ -5,55 +5,122 @@ metadata:
 spec:
   group: surreal-dbops.reliquo.io
   names:
+    categories: []
     kind: Rollout
-    listKind: RolloutList
     plural: rollouts
+    shortNames: []
     singular: rollout
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          properties:
-            spec:
-              type: object
-              required: [schemaRef, generation]
-              properties:
-                schemaRef:
-                  type: object
-                  required: [name]
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for RolloutSpec via `CustomResource`
+        properties:
+          spec:
+            description: Tracks a schema migration execution.
+            properties:
+              desiredSchema:
+                default: ''
+                description: |-
+                  Immutable desired schema snapshot for this rollout generation.
+
+                  This allows older rollouts to continue reconciling against the schema content they were created with, even after the Schema resource advances.
+                type: string
+              generation:
+                description: Generation of the Schema that this rollout corresponds to.
+                format: int64
+                type: integer
+              schemaRef:
+                description: Reference to the Schema template being rolled out.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    nullable: true
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - generation
+            - schemaRef
+            type: object
+          status:
+            nullable: true
+            properties:
+              affectedDatabases:
+                format: uint
+                minimum: 0.0
+                type: integer
+              appliedDatabases:
+                format: uint
+                minimum: 0.0
+                type: integer
+              approved:
+                type: boolean
+              approvedAt:
+                nullable: true
+                type: string
+              approvedBy:
+                nullable: true
+                type: string
+              completedAt:
+                nullable: true
+                type: string
+              conditions:
+                items:
+                  description: Standard Kubernetes Conditions status block.
                   properties:
-                    name: { type: string }
-                    namespace: { type: string }
-                generation: { type: integer }
-                desiredSchema: { type: string }
-            status:
-              type: object
-              properties:
-                phase: { type: string }
-                diff: { type: string }
-                destructive: { type: boolean }
-                affectedDatabases: { type: integer }
-                appliedDatabases: { type: integer }
-                failedDatabases: { type: integer }
-                approved: { type: boolean }
-                approvedBy: { type: string }
-                approvedAt: { type: string }
-                completedAt: { type: string }
-                observedGeneration: { type: integer }
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    required: [type, status, lastTransitionTime, reason, message]
-                    properties:
-                      type: { type: string }
-                      status: { type: string }
-                      lastTransitionTime: { type: string }
-                      reason: { type: string }
-                      message: { type: string }
-      subresources:
-        status: {}
+                    lastTransitionTime:
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              destructive:
+                type: boolean
+              diff:
+                nullable: true
+                type: string
+              failedDatabases:
+                format: uint
+                minimum: 0.0
+                type: integer
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                nullable: true
+                type: string
+            required:
+            - affectedDatabases
+            - appliedDatabases
+            - approved
+            - conditions
+            - destructive
+            - failedDatabases
+            type: object
+        required:
+        - spec
+        title: Rollout
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+

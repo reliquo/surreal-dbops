@@ -5,53 +5,135 @@ metadata:
 spec:
   group: surreal-dbops.reliquo.io
   names:
+    categories: []
     kind: Schema
-    listKind: SchemaList
     plural: schemas
+    shortNames: []
     singular: schema
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          properties:
-            spec:
-              type: object
-              required: [schema]
-              properties:
-                revisionHistoryLimit: { type: integer }
-                concurrencyLimit: { type: integer }
-                requireApproval: { type: string, enum: [destructive, all, none] }
-                schema: &valueOrRefSourceSchema
-                  type: object
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for SchemaSpec via `CustomResource`
+        properties:
+          spec:
+            description: Defines a database schema template, with variables and rollout policies.
+            properties:
+              concurrencyLimit:
+                description: Limit on the number of database rollouts to process concurrently. Defaults to 50.
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              requireApproval:
+                description: 'Approval policy for database rollouts. Options: destructive (default) | all | none.'
+                enum:
+                - destructive
+                - all
+                - none
+                nullable: true
+                type: string
+              revisionHistoryLimit:
+                description: Number of completed/failed Rollout resources to retain for audit history.
+                format: uint
+                minimum: 0.0
+                nullable: true
+                type: integer
+              schema:
+                description: The SurrealQL schema source.
+                properties:
+                  value:
+                    nullable: true
+                    type: string
+                  valueFrom:
+                    nullable: true
+                    properties:
+                      configMapRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      secretKeyRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                type: object
+              variables:
+                additionalProperties:
+                  description: Flexible container that holds either a raw value or references a Secret/ConfigMap.
                   properties:
-                    value: { type: string }
+                    value:
+                      nullable: true
+                      type: string
                     valueFrom:
-                      type: object
+                      nullable: true
                       properties:
-                        secretKeyRef:
-                          type: object
-                          required: [name, key]
-                          properties:
-                            name: { type: string }
-                            key: { type: string }
                         configMapRef:
-                          type: object
-                          required: [name, key]
+                          nullable: true
                           properties:
-                            name: { type: string }
-                            key: { type: string }
-                variables:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        secretKeyRef:
+                          nullable: true
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      type: object
                   type: object
-                  additionalProperties: *valueOrRefSourceSchema
-            status:
-              type: object
-              properties:
-                currentVersionHash: { type: string }
-                activeRolloutName: { type: string }
-                observedGeneration: { type: integer }
-      subresources:
-        status: {}
+                description: Key-value variables to interpolate into the schema definition.
+                nullable: true
+                type: object
+            required:
+            - schema
+            type: object
+          status:
+            nullable: true
+            properties:
+              activeRolloutName:
+                nullable: true
+                type: string
+              currentVersionHash:
+                nullable: true
+                type: string
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+            type: object
+        required:
+        - spec
+        title: Schema
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+

@@ -120,6 +120,36 @@ jobs:
         if: needs.changes.outputs.src == 'true'
         run: cargo test --lib --bins
 
+      - name: Verify CRD schemas are in sync
+        if: needs.changes.outputs.src == 'true'
+        run: |
+          cargo run -- --crdgen > generated_crds.yaml
+          python3 -c "
+          import os
+          content = open('generated_crds.yaml').read()
+          parts = content.split('---\n')
+          mapping = {
+              'instances.surreal-dbops.reliquo.io': 'charts/surreal-dbops/crds/Instance.yaml',
+              'namespaces.surreal-dbops.reliquo.io': 'charts/surreal-dbops/crds/Namespace.yaml',
+              'databases.surreal-dbops.reliquo.io': 'charts/surreal-dbops/crds/Database.yaml',
+              'schemas.surreal-dbops.reliquo.io': 'charts/surreal-dbops/crds/Schema.yaml',
+              'rollouts.surreal-dbops.reliquo.io': 'charts/surreal-dbops/crds/Rollout.yaml'
+          }
+          for part in parts:
+              if not part.strip():
+                  continue
+              name = None
+              for line in part.split('\n'):
+                  if 'name:' in line:
+                      name = line.split('name:')[1].strip()
+                      break
+              if name in mapping:
+                  filename = mapping[name]
+                  with open(filename, 'w') as f:
+                      f.write(part)
+          "
+          git diff --exit-code charts/surreal-dbops/crds/
+
   helm:
     name: Lint / Helm
     needs: changes
