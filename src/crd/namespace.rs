@@ -1,4 +1,4 @@
-use crate::crd::LocalObjectReference;
+use crate::crd::{LocalObjectReference, ValueOrRefSource};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,24 @@ use serde::{Deserialize, Serialize};
 pub struct NamespaceSpec {
     /// Reference to the Instance CRD hosting this namespace.
     pub instance_ref: LocalObjectReference,
+    /// List of user credentials to provision for this namespace.
+    pub user_credentials: Option<Vec<UserCredentials>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UserCredentials {
+    pub username: ValueOrRefSource,
+    pub password: ValueOrRefSource,
+    pub roles: Option<Vec<String>>,
+    pub duration: Option<UserDuration>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UserDuration {
+    pub token: Option<String>,
+    pub session: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, PartialEq, Default)]
