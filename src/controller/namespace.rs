@@ -166,7 +166,9 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                 }
 
                 for cred in credentials {
-                    let resolved_user = match resolve_value(client, &cred.username, &ns_namespace).await {
+                    let resolved_user = match resolve_value(client, &cred.username, &ns_namespace)
+                        .await
+                    {
                         Ok(u) => u,
                         Err(e) => {
                             let err_msg = format!("Failed to resolve username: {}", e);
@@ -176,7 +178,9 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                         }
                     };
 
-                    let resolved_pass = match resolve_value(client, &cred.password, &ns_namespace).await {
+                    let resolved_pass = match resolve_value(client, &cred.password, &ns_namespace)
+                        .await
+                    {
                         Ok(p) => p,
                         Err(e) => {
                             let err_msg = format!("Failed to resolve password: {}", e);
@@ -186,7 +190,10 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                         }
                     };
 
-                    let roles = cred.roles.clone().unwrap_or_else(|| vec!["OWNER".to_string()]);
+                    let roles = cred
+                        .roles
+                        .clone()
+                        .unwrap_or_else(|| vec!["OWNER".to_string()]);
                     let roles_str = roles.join(", ");
 
                     // Format DURATION clause if present
@@ -212,7 +219,10 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                     );
 
                     if let Err(e) = db.query(&user_query).await {
-                        let err_msg = format!("Failed to define user `{}` in SurrealDB: {}", resolved_user, e);
+                        let err_msg = format!(
+                            "Failed to define user `{}` in SurrealDB: {}",
+                            resolved_user, e
+                        );
                         error!("{}", err_msg);
                         update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
                         return Ok(Action::requeue(Duration::from_secs(30)));
