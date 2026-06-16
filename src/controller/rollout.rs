@@ -356,15 +356,19 @@ pub async fn reconcile(rollout: Arc<Rollout>, ctx: Arc<Context>) -> Result<Actio
                 let ns_api: Api<Namespace> = Api::namespaced(client.clone(), &ns_ref_ns);
                 match ns_api.get(&target_db.spec.namespace_ref.name).await {
                     Ok(ns) => {
+                        let ns_name_any = ns.name_any();
+                        let target_db_name_any = target_db.name_any();
+                        let resolved_ns_name = ns.spec.name.as_deref().unwrap_or(&ns_name_any);
+                        let resolved_db_name = target_db.spec.name.as_deref().unwrap_or(&target_db_name_any);
                         if let Err(e) = db_client
-                            .use_ns(ns.name_any())
-                            .use_db(target_db.name_any())
+                            .use_ns(resolved_ns_name)
+                            .use_db(resolved_db_name)
                             .await
                         {
                             diff_error = Some(format!(
                                 "Failed to select namespace {} and database {} before diff: {}",
-                                ns.name_any(),
-                                target_db.name_any(),
+                                resolved_ns_name,
+                                resolved_db_name,
                                 e
                             ));
                         } else {
@@ -997,11 +1001,15 @@ async fn apply_schema_to_db(
         .map_err(Error::KubeError)?;
 
     // Switch namespace and database
+    let ns_name_any = ns.name_any();
+    let db_name_any = db_resource.name_any();
+    let resolved_ns_name = ns.spec.name.as_deref().unwrap_or(&ns_name_any);
+    let resolved_db_name = db_resource.spec.name.as_deref().unwrap_or(&db_name_any);
     db_client
-        .use_ns(ns.name_any())
-        .use_db(db_resource.name_any())
+        .use_ns(resolved_ns_name)
+        .use_db(resolved_db_name)
         .await
-        .map_err(|e| Error::SurrealError(format!("Failed to select NS/DB: {}", e)))?;
+        .map_err(|e| Error::SurrealError(format!("Failed to select NS/DB ({} / {}): {}", resolved_ns_name, resolved_db_name, e)))?;
 
     // Execute within transaction
     let transaction_query = format!("BEGIN TRANSACTION;\n{}\nCOMMIT TRANSACTION;", query);

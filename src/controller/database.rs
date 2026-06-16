@@ -15,6 +15,7 @@ use crate::surreal::connect_instance;
 pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<Action> {
     let client = &ctx.client;
     let db_name = db_resource.name_any();
+    let surreal_db_name = db_resource.spec.name.as_deref().unwrap_or(&db_name);
     let db_namespace = db_resource
         .namespace()
         .ok_or_else(|| Error::InternalError("Database is cluster-scoped".to_string()))?;
@@ -226,10 +227,11 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
 
     // 5. Connect to SurrealDB and ensure Database exists
     let ns_name = ns.name_any();
+    let surreal_ns_name = ns.spec.name.as_deref().unwrap_or(&ns_name);
     match connect_instance(&endpoint, &username, &password).await {
         Ok(db) => {
             // In SurrealQL, we must switch namespaces before creating a database
-            let query_str = format!("USE NS `{}`; DEFINE DB `{}`;", ns_name, db_name);
+            let query_str = format!("USE NS `{}`; DEFINE DB `{}`;", surreal_ns_name, surreal_db_name);
             if let Err(e) = db.query(&query_str).await {
                 let err_msg = format!("Failed to define database in SurrealDB: {}", e);
                 error!("{}", err_msg);
@@ -247,7 +249,7 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
             }
             info!(
                 "Successfully ensured database {}/{} exists in SurrealDB",
-                ns_name, db_name
+                surreal_ns_name, surreal_db_name
             );
 
             // Retain the existing applied schema fields in status to avoid overwriting them

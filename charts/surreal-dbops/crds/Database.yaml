@@ -1,3 +1,4 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -21,6 +22,10 @@ spec:
           spec:
             description: Declares a SurrealDB Database instance managed in-operator.
             properties:
+              name:
+                description: Optional name of the SurrealDB database. Defaults to metadata.name if not specified.
+                nullable: true
+                type: string
               namespaceRef:
                 description: Reference to the logical Namespace CRD.
                 properties:
@@ -77,4 +82,3 @@ spec:
     storage: true
     subresources:
       status: {}
-
