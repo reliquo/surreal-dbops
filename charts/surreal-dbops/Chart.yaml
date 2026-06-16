@@ -2,8 +2,8 @@ apiVersion: v2
 name: surreal-dbops
 description: A Helm chart for the SurrealDB GitOps Operator (surreal-dbops)
 type: application
-version: 1.1.0
-appVersion: "1.1.0"
+version: 1.2.0
+appVersion: "1.2.0"
 maintainers:
   - name: rintaun
     email: rintaun@gmail.com
