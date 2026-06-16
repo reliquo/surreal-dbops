@@ -1,6 +1,6 @@
 [package]
 name = "surreal-dbops"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "Kubernetes custom controller to manage SurrealDB logical resources using GitOps principles"
 

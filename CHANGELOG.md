@@ -1,3 +1,12 @@
+## [1.2.1](https://github.com/reliquo/surreal-dbops/compare/v1.2.0...v1.2.1) (2026-06-16)
+
+
+### Other Changes
+
+* apply rustfmt formatting in controller test ([691f6c8](https://github.com/reliquo/surreal-dbops/commit/691f6c84fe305e1216681239aa365fadce18251f))
+* ensure namespace user creation queries properly switch context and check for execution errors ([654026c](https://github.com/reliquo/surreal-dbops/commit/654026c22a038dfde53405a3bc4a7449f44d3c56))
+* treat existing surreal namespace as success ([182acd9](https://github.com/reliquo/surreal-dbops/commit/182acd97c774bd3157f918b60aae612cbd30a23c))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
