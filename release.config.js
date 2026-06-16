@@ -45,7 +45,7 @@ module.exports = {
     [
       "semantic-release-cargo",
       {
-        check: false,
+        check: true,
         publish: false,
         alwaysVerifyToken: false
       }
