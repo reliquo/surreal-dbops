@@ -43,9 +43,11 @@ module.exports = {
     ],
     "@semantic-release/changelog",
     [
-      "@semantic-release-cargo/semantic-release-cargo",
+      "semantic-release-cargo",
       {
-        publish: false
+        check: false,
+        publish: false,
+        alwaysVerifyToken: false
       }
     ],
     [
