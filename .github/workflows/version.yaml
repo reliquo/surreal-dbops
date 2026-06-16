@@ -24,6 +24,14 @@ jobs:
           owner: "reliquo"
           repositories: "surreal-dbops"
 
+      - name: Get GitHub App User ID
+        id: app-user-id
+        run: |
+          USER_ID=$(gh api "/users/${{ steps.generate_token.outputs.app-slug }}[bot]" --jq .id)
+          echo "user-id=$USER_ID" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -41,15 +49,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install semantic-release plugins
-        run: |
-          npm install --no-save \
-            @semantic-release/changelog \
-            @semantic-release/git \
-            @semantic-release-cargo/semantic-release-cargo \
-            semantic-release-helm3
-
       - name: Run semantic-release
         uses: codfish/semantic-release-action@v3
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+          GIT_COMMITTER_NAME: ${{ steps.generate_token.outputs.app-slug }}[bot]
+          GIT_COMMITTER_EMAIL: ${{ steps.app-user-id.outputs.user-id }}+${{ steps.generate_token.outputs.app-slug }}[bot]@users.noreply.github.com
+        with:
+          additional-packages: |
+            ["@semantic-release/changelog", "@semantic-release/git", "@semantic-release-cargo/semantic-release-cargo", "semantic-release-helm3"]
