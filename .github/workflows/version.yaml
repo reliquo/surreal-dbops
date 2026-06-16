@@ -1,0 +1,60 @@
+name: Version
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  version:
+    name: Calculate, Bump and Release Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.RELIQUO_CI_CLIENT_ID }}
+          private-key: ${{ secrets.RELIQUO_CI_PRIVATE_KEY }}
+          owner: "reliquo"
+          repositories: "surreal-dbops"
+
+      - name: Get GitHub App User ID
+        id: app-user-id
+        run: |
+          USER_ID=$(gh api "/users/${{ steps.generate_token.outputs.app-slug }}[bot]" --jq .id)
+          echo "user-id=$USER_ID" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run semantic-release
+        uses: codfish/semantic-release-action@v3
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+          GIT_COMMITTER_NAME: ${{ steps.generate_token.outputs.app-slug }}[bot]
+          GIT_COMMITTER_EMAIL: ${{ steps.app-user-id.outputs.user-id }}+${{ steps.generate_token.outputs.app-slug }}[bot]@users.noreply.github.com
+        with:
+          additional-packages: |
+            ["@semantic-release/changelog", "@semantic-release/git", "@semantic-release-cargo/semantic-release-cargo", "semantic-release-helm3"]
