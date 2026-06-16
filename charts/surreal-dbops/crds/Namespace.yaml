@@ -5,34 +5,147 @@ metadata:
 spec:
   group: surreal-dbops.reliquo.io
   names:
+    categories: []
     kind: Namespace
-    listKind: NamespaceList
     plural: namespaces
+    shortNames: []
     singular: namespace
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          properties:
-            spec:
-              type: object
-              required: [instanceRef]
-              properties:
-                instanceRef:
-                  type: object
-                  required: [name]
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for NamespaceSpec via `CustomResource`
+        properties:
+          spec:
+            description: Declares a SurrealDB Namespace linked to a specific SurrealDB Instance.
+            properties:
+              instanceRef:
+                description: Reference to the Instance CRD hosting this namespace.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    nullable: true
+                    type: string
+                required:
+                - name
+                type: object
+              userCredentials:
+                description: List of user credentials to provision for this namespace.
+                items:
                   properties:
-                    name: { type: string }
-                    namespace: { type: string }
-            status:
-              type: object
-              properties:
-                created: { type: boolean }
-                error: { type: string }
-                observedGeneration: { type: integer }
-      subresources:
-        status: {}
+                    duration:
+                      nullable: true
+                      properties:
+                        session:
+                          nullable: true
+                          type: string
+                        token:
+                          nullable: true
+                          type: string
+                      type: object
+                    password:
+                      description: Flexible container that holds either a raw value or references a Secret/ConfigMap.
+                      properties:
+                        value:
+                          nullable: true
+                          type: string
+                        valueFrom:
+                          nullable: true
+                          properties:
+                            configMapRef:
+                              nullable: true
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            secretKeyRef:
+                              nullable: true
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                      type: object
+                    roles:
+                      items:
+                        type: string
+                      nullable: true
+                      type: array
+                    username:
+                      description: Flexible container that holds either a raw value or references a Secret/ConfigMap.
+                      properties:
+                        value:
+                          nullable: true
+                          type: string
+                        valueFrom:
+                          nullable: true
+                          properties:
+                            configMapRef:
+                              nullable: true
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            secretKeyRef:
+                              nullable: true
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                      type: object
+                  required:
+                  - password
+                  - username
+                  type: object
+                nullable: true
+                type: array
+            required:
+            - instanceRef
+            type: object
+          status:
+            nullable: true
+            properties:
+              created:
+                type: boolean
+              error:
+                nullable: true
+                type: string
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+            required:
+            - created
+            type: object
+        required:
+        - spec
+        title: Namespace
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
