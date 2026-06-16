@@ -5,42 +5,76 @@ metadata:
 spec:
   group: surreal-dbops.reliquo.io
   names:
+    categories: []
     kind: Database
-    listKind: DatabaseList
     plural: databases
+    shortNames: []
     singular: database
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          properties:
-            spec:
-              type: object
-              required: [namespaceRef, schemaRef]
-              properties:
-                namespaceRef:
-                  type: object
-                  required: [name]
-                  properties:
-                    name: { type: string }
-                    namespace: { type: string }
-                schemaRef:
-                  type: object
-                  required: [name]
-                  properties:
-                    name: { type: string }
-                    namespace: { type: string }
-            status:
-              type: object
-              properties:
-                created: { type: boolean }
-                appliedSchemaHash: { type: string }
-                appliedSchemaGeneration: { type: integer }
-                error: { type: string }
-                observedGeneration: { type: integer }
-      subresources:
-        status: {}
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for DatabaseSpec via `CustomResource`
+        properties:
+          spec:
+            description: Declares a SurrealDB Database instance managed in-operator.
+            properties:
+              namespaceRef:
+                description: Reference to the logical Namespace CRD.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    nullable: true
+                    type: string
+                required:
+                - name
+                type: object
+              schemaRef:
+                description: Reference to the Schema CRD template to apply.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    nullable: true
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - namespaceRef
+            - schemaRef
+            type: object
+          status:
+            nullable: true
+            properties:
+              appliedSchemaGeneration:
+                format: int64
+                nullable: true
+                type: integer
+              appliedSchemaHash:
+                nullable: true
+                type: string
+              created:
+                type: boolean
+              error:
+                nullable: true
+                type: string
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+            required:
+            - created
+            type: object
+        required:
+        - spec
+        title: Database
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+

@@ -5,49 +5,147 @@ metadata:
 spec:
   group: surreal-dbops.reliquo.io
   names:
+    categories: []
     kind: Instance
-    listKind: InstanceList
     plural: instances
+    shortNames: []
     singular: instance
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          properties:
-            spec:
-              type: object
-              required: [connectionString, username, password]
-              properties:
-                connectionString: &valueOrRefSource
-                  type: object
-                  properties:
-                    value: { type: string }
-                    valueFrom:
-                      type: object
-                      properties:
-                        secretKeyRef:
-                          type: object
-                          required: [name, key]
-                          properties:
-                            name: { type: string }
-                            key: { type: string }
-                        configMapRef:
-                          type: object
-                          required: [name, key]
-                          properties:
-                            name: { type: string }
-                            key: { type: string }
-                username: *valueOrRefSource
-                password: *valueOrRefSource
-            status:
-              type: object
-              properties:
-                connected: { type: boolean }
-                error: { type: string }
-                observedGeneration: { type: integer }
-      subresources:
-        status: {}
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for InstanceSpec via `CustomResource`
+        properties:
+          spec:
+            description: Defines a SurrealDB server instance connection configuration.
+            properties:
+              connectionString:
+                description: The database connection string (e.g. ws://surrealdb.reliquo:8000).
+                properties:
+                  value:
+                    nullable: true
+                    type: string
+                  valueFrom:
+                    nullable: true
+                    properties:
+                      configMapRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      secretKeyRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                type: object
+              password:
+                description: Administrative password.
+                properties:
+                  value:
+                    nullable: true
+                    type: string
+                  valueFrom:
+                    nullable: true
+                    properties:
+                      configMapRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      secretKeyRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                type: object
+              username:
+                description: Administrative username.
+                properties:
+                  value:
+                    nullable: true
+                    type: string
+                  valueFrom:
+                    nullable: true
+                    properties:
+                      configMapRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      secretKeyRef:
+                        nullable: true
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                type: object
+            required:
+            - connectionString
+            - password
+            - username
+            type: object
+          status:
+            nullable: true
+            properties:
+              connected:
+                type: boolean
+              error:
+                nullable: true
+                type: string
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+            required:
+            - connected
+            type: object
+        required:
+        - spec
+        title: Instance
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
