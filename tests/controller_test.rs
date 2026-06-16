@@ -452,6 +452,53 @@ mod controller_tests {
             }
         }
 
+        // 2b. Namespace Test with User Credentials
+        {
+            let mut inst_val = mock_instance_val("instns-users", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instns-users".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val("nsns-users", "instns-users");
+            ns_val["spec"]["userCredentials"] = json!([
+                {
+                    "username": { "value": "ns_admin" },
+                    "password": { "value": "nspassword" },
+                    "roles": ["OWNER"]
+                }
+            ]);
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsns-users".to_string(), ns_val);
+
+            let api: Api<Namespace> = Api::namespaced(client.clone(), "test-ns");
+            let ns = api.get("nsns-users").await.unwrap();
+            let result = namespace::reconcile(Arc::new(ns), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let updated_map = state.namespaces.lock().unwrap();
+            let updated_ns = updated_map.get("nsns-users").unwrap();
+            let status = updated_ns.get("status").expect("status to be populated");
+            if status["created"].as_bool() != Some(true) {
+                panic!("Namespace reconciliation failed with status: {:#?}", status);
+            }
+
+            // Connect to SurrealDB directly to verify user is created
+            let db = surreal_dbops::surreal::connect_instance("mem://", "root", "rootpassword")
+                .await
+                .unwrap();
+            let mut response = db.query("USE NS `nsns-users`; INFO FOR NS;").await.unwrap().check().unwrap();
+            let ns_info: Option<Value> = response.take(1usize).unwrap();
+            let ns_info = ns_info.unwrap_or_default();
+            let users = ns_info.get("users").expect("users field to be present");
+            assert!(users.get("ns_admin").is_some() || users.as_object().unwrap().keys().any(|k| k == "ns_admin"), "User ns_admin not found in NS info. Live: {:?}", users);
+        }
+
         // 3. Database Test
         {
             let mut inst_val = mock_instance_val("instdb", "mem://");

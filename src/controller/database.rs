@@ -235,7 +235,7 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
                 "USE NS `{}`; DEFINE DB `{}`;",
                 surreal_ns_name, surreal_db_name
             );
-            if let Err(e) = db.query(&query_str).await {
+            if let Err(e) = db.query(&query_str).await.and_then(|r| r.check()) {
                 let err_msg = format!("Failed to define database in SurrealDB: {}", e);
                 error!("{}", err_msg);
                 update_status(
