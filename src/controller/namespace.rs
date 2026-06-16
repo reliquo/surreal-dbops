@@ -145,11 +145,15 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
     match connect_instance(&endpoint, &username, &password).await {
         Ok(db) => {
             let query_str = format!("DEFINE NS `{}`;", surreal_ns_name);
-            if let Err(e) = db.query(&query_str).await {
-                let err_msg = format!("Failed to define namespace in SurrealDB: {}", e);
-                error!("{}", err_msg);
-                update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
-                return Ok(Action::requeue(Duration::from_secs(30)));
+            if let Err(e) = db.query(&query_str).await.and_then(|r| r.check()) {
+                let error_text = e.to_string();
+                if !error_text.to_lowercase().contains("already exists") {
+                    let err_msg =
+                        format!("Failed to define namespace in SurrealDB: {}", error_text);
+                    error!("{}", err_msg);
+                    update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+                    return Ok(Action::requeue(Duration::from_secs(30)));
+                }
             }
             info!(
                 "Successfully ensured namespace {} exists in SurrealDB",
@@ -158,8 +162,7 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
 
             // Provision user credentials if specified
             if let Some(ref credentials) = ns.spec.user_credentials {
-                let use_query = format!("USE NS `{}`;", surreal_ns_name);
-                if let Err(e) = db.query(&use_query).await {
+                if let Err(e) = db.use_ns(surreal_ns_name).await {
                     let err_msg = format!("Failed to switch namespace context in SurrealDB: {}", e);
                     error!("{}", err_msg);
                     update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
@@ -219,7 +222,7 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                         resolved_user, resolved_pass, roles_str, duration_str
                     );
 
-                    if let Err(e) = db.query(&user_query).await {
+                    if let Err(e) = db.query(&user_query).await.and_then(|r| r.check()) {
                         let err_msg = format!(
                             "Failed to define user `{}` in SurrealDB: {}",
                             resolved_user, e
