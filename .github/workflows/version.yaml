@@ -46,4 +46,4 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ steps.app-user-id.outputs.user-id }}+${{ steps.generate_token.outputs.app-slug }}[bot]@users.noreply.github.com
         with:
           additional-packages: |
-            ["rust@1.75.0", "@semantic-release/changelog", "@semantic-release/git", "semantic-release-cargo", "semantic-release-helm3"]
+            ["@semantic-release/changelog", "@semantic-release/git", "@semantic-release-cargo/semantic-release-cargo", "semantic-release-cargo", "semantic-release-helm3"]
