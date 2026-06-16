@@ -54,7 +54,7 @@ jobs:
           npm install --no-save \
             semantic-release \
             @semantic-release/changelog \
-            @semantic-release/git \
+            @jno21/semantic-release-github-commit \
             semantic-release-cargo \
             semantic-release-helm3
 
@@ -62,5 +62,3 @@ jobs:
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
-          GIT_COMMITTER_NAME: ${{ steps.generate_token.outputs.app-slug }}[bot]
-          GIT_COMMITTER_EMAIL: ${{ steps.app-user-id.outputs.user-id }}+${{ steps.generate_token.outputs.app-slug }}[bot]@users.noreply.github.com

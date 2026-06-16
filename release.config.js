@@ -57,15 +57,15 @@ module.exports = {
       }
     ],
     [
-      "@semantic-release/git",
+      "@jno21/semantic-release-github-commit",
       {
-        assets: [
+        files: [
           "Cargo.toml",
           "Cargo.lock",
           "charts/surreal-dbops/Chart.yaml",
           "CHANGELOG.md"
         ],
-        message: "chore(release): bump version to ${nextRelease.version} [skip ci]"
+        commitMessage: "chore(release): bump version to ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ],
     [
