@@ -31,7 +31,6 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'Dockerfile'
-              - '.github/workflows/ci.yaml'
             helm:
               - 'charts/**'
 
