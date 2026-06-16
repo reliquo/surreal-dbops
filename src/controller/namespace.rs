@@ -154,6 +154,76 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                 "Successfully ensured namespace {} exists in SurrealDB",
                 ns_name
             );
+
+            // Provision user credentials if specified
+            if let Some(ref credentials) = ns.spec.user_credentials {
+                let use_query = format!("USE NS `{}`;", ns_name);
+                if let Err(e) = db.query(&use_query).await {
+                    let err_msg = format!("Failed to switch namespace context in SurrealDB: {}", e);
+                    error!("{}", err_msg);
+                    update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+                    return Ok(Action::requeue(Duration::from_secs(30)));
+                }
+
+                for cred in credentials {
+                    let resolved_user = match resolve_value(client, &cred.username, &ns_namespace).await {
+                        Ok(u) => u,
+                        Err(e) => {
+                            let err_msg = format!("Failed to resolve username: {}", e);
+                            error!("{}", err_msg);
+                            update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+                            return Ok(Action::requeue(Duration::from_secs(30)));
+                        }
+                    };
+
+                    let resolved_pass = match resolve_value(client, &cred.password, &ns_namespace).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let err_msg = format!("Failed to resolve password: {}", e);
+                            error!("{}", err_msg);
+                            update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+                            return Ok(Action::requeue(Duration::from_secs(30)));
+                        }
+                    };
+
+                    let roles = cred.roles.clone().unwrap_or_else(|| vec!["OWNER".to_string()]);
+                    let roles_str = roles.join(", ");
+
+                    // Format DURATION clause if present
+                    let mut duration_parts = Vec::new();
+                    if let Some(ref dur) = cred.duration {
+                        if let Some(ref tok) = dur.token {
+                            duration_parts.push(format!("FOR token {}", tok));
+                        }
+                        if let Some(ref sess) = dur.session {
+                            duration_parts.push(format!("FOR session {}", sess));
+                        }
+                    }
+                    let duration_str = if !duration_parts.is_empty() {
+                        format!(" DURATION {}", duration_parts.join(", "))
+                    } else {
+                        "".to_string()
+                    };
+
+                    // Use DEFINE USER OVERWRITE as requested
+                    let user_query = format!(
+                        "DEFINE USER OVERWRITE `{}` ON NAMESPACE PASSWORD '{}' ROLES {}{};",
+                        resolved_user, resolved_pass, roles_str, duration_str
+                    );
+
+                    if let Err(e) = db.query(&user_query).await {
+                        let err_msg = format!("Failed to define user `{}` in SurrealDB: {}", resolved_user, e);
+                        error!("{}", err_msg);
+                        update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
+                        return Ok(Action::requeue(Duration::from_secs(30)));
+                    }
+                    info!(
+                        "Successfully ensured namespace user `{}` exists in SurrealDB namespace {}",
+                        resolved_user, ns_name
+                    );
+                }
+            }
+
             update_status(&ns, client, &ns_namespace, true, None).await?;
         }
         Err(e) => {
