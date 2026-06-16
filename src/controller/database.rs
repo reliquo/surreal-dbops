@@ -236,19 +236,22 @@ pub async fn reconcile(db_resource: Arc<Database>, ctx: Arc<Context>) -> Result<
                 surreal_ns_name, surreal_db_name
             );
             if let Err(e) = db.query(&query_str).await.and_then(|r| r.check()) {
-                let err_msg = format!("Failed to define database in SurrealDB: {}", e);
-                error!("{}", err_msg);
-                update_status(
-                    &db_resource,
-                    client,
-                    &db_namespace,
-                    false,
-                    None,
-                    None,
-                    Some(err_msg),
-                )
-                .await?;
-                return Ok(Action::requeue(Duration::from_secs(30)));
+                let error_text = e.to_string();
+                if !error_text.to_lowercase().contains("already exists") {
+                    let err_msg = format!("Failed to define database in SurrealDB: {}", error_text);
+                    error!("{}", err_msg);
+                    update_status(
+                        &db_resource,
+                        client,
+                        &db_namespace,
+                        false,
+                        None,
+                        None,
+                        Some(err_msg),
+                    )
+                    .await?;
+                    return Ok(Action::requeue(Duration::from_secs(30)));
+                }
             }
             info!(
                 "Successfully ensured database {}/{} exists in SurrealDB",
