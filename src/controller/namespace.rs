@@ -148,7 +148,8 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
             if let Err(e) = db.query(&query_str).await.and_then(|r| r.check()) {
                 let error_text = e.to_string();
                 if !error_text.to_lowercase().contains("already exists") {
-                    let err_msg = format!("Failed to define namespace in SurrealDB: {}", error_text);
+                    let err_msg =
+                        format!("Failed to define namespace in SurrealDB: {}", error_text);
                     error!("{}", err_msg);
                     update_status(&ns, client, &ns_namespace, false, Some(err_msg)).await?;
                     return Ok(Action::requeue(Duration::from_secs(30)));
