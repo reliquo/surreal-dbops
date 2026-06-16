@@ -15,6 +15,7 @@ use crate::surreal::connect_instance;
 pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> {
     let client = &ctx.client;
     let ns_name = ns.name_any();
+    let surreal_ns_name = ns.spec.name.as_deref().unwrap_or(&ns_name);
     let ns_namespace = ns
         .namespace()
         .ok_or_else(|| Error::InternalError("Namespace is cluster-scoped".to_string()))?;
@@ -143,7 +144,7 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
     // 3. Connect to SurrealDB and ensure Namespace exists
     match connect_instance(&endpoint, &username, &password).await {
         Ok(db) => {
-            let query_str = format!("DEFINE NS `{}`;", ns_name);
+            let query_str = format!("DEFINE NS `{}`;", surreal_ns_name);
             if let Err(e) = db.query(&query_str).await {
                 let err_msg = format!("Failed to define namespace in SurrealDB: {}", e);
                 error!("{}", err_msg);
@@ -152,12 +153,12 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
             }
             info!(
                 "Successfully ensured namespace {} exists in SurrealDB",
-                ns_name
+                surreal_ns_name
             );
 
             // Provision user credentials if specified
             if let Some(ref credentials) = ns.spec.user_credentials {
-                let use_query = format!("USE NS `{}`;", ns_name);
+                let use_query = format!("USE NS `{}`;", surreal_ns_name);
                 if let Err(e) = db.query(&use_query).await {
                     let err_msg = format!("Failed to switch namespace context in SurrealDB: {}", e);
                     error!("{}", err_msg);
@@ -229,7 +230,7 @@ pub async fn reconcile(ns: Arc<Namespace>, ctx: Arc<Context>) -> Result<Action> 
                     }
                     info!(
                         "Successfully ensured namespace user `{}` exists in SurrealDB namespace {}",
-                        resolved_user, ns_name
+                        resolved_user, surreal_ns_name
                     );
                 }
             }

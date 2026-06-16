@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "camelCase")]
 pub struct NamespaceSpec {
+    /// Optional name of the SurrealDB namespace. Defaults to metadata.name if not specified.
+    pub name: Option<String>,
     /// Reference to the Instance CRD hosting this namespace.
     pub instance_ref: LocalObjectReference,
     /// List of user credentials to provision for this namespace.

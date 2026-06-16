@@ -293,7 +293,15 @@ mod controller_tests {
     }
 
     fn mock_namespace_val(name: &str, instance_name: &str) -> Value {
-        json!({
+        mock_namespace_val_with_spec_name(name, instance_name, None)
+    }
+
+    fn mock_namespace_val_with_spec_name(
+        name: &str,
+        instance_name: &str,
+        spec_name: Option<&str>,
+    ) -> Value {
+        let mut val = json!({
             "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Namespace",
             "metadata": {
@@ -305,11 +313,24 @@ mod controller_tests {
             "spec": {
                 "instanceRef": { "name": instance_name }
             }
-        })
+        });
+        if let Some(s_name) = spec_name {
+            val["spec"]["name"] = json!(s_name);
+        }
+        val
     }
 
     fn mock_database_val(name: &str, ns_name: &str, schema_name: &str) -> Value {
-        json!({
+        mock_database_val_with_spec_name(name, ns_name, schema_name, None)
+    }
+
+    fn mock_database_val_with_spec_name(
+        name: &str,
+        ns_name: &str,
+        schema_name: &str,
+        spec_name: Option<&str>,
+    ) -> Value {
+        let mut val = json!({
             "apiVersion": "surreal-dbops.reliquo.io/v1alpha1",
             "kind": "Database",
             "metadata": {
@@ -322,7 +343,11 @@ mod controller_tests {
                 "namespaceRef": { "name": ns_name },
                 "schemaRef": { "name": schema_name }
             }
-        })
+        });
+        if let Some(s_name) = spec_name {
+            val["spec"]["name"] = json!(s_name);
+        }
+        val
     }
 
     fn mock_schema_val(name: &str, schema_text: &str) -> Value {
@@ -984,6 +1009,82 @@ mod controller_tests {
             let rollouts = state.rollouts.lock().unwrap();
             let r = rollouts.get("rolloutshort").unwrap();
             assert_eq!(r["status"]["phase"].as_str(), Some("Completed"));
+        }
+
+        // 11. Namespace Test with Custom spec.name
+        {
+            let mut inst_val = mock_instance_val("instnscustom", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instnscustom".to_string(), inst_val);
+
+            let ns_val = mock_namespace_val_with_spec_name(
+                "nsnscustom",
+                "instnscustom",
+                Some("my-custom-ns-name"),
+            );
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsnscustom".to_string(), ns_val);
+
+            let api: Api<Namespace> = Api::namespaced(client.clone(), "test-ns");
+            let ns = api.get("nsnscustom").await.unwrap();
+            let result = namespace::reconcile(Arc::new(ns), ctx.clone()).await;
+            assert!(result.is_ok());
+            let updated_map = state.namespaces.lock().unwrap();
+            let updated_ns = updated_map.get("nsnscustom").unwrap();
+            let status = updated_ns.get("status").expect("status to be populated");
+            assert_eq!(status["created"].as_bool(), Some(true));
+        }
+
+        // 12. Database Test with Custom spec.name
+        {
+            let mut inst_val = mock_instance_val("instdbcustom", "mem://");
+            inst_val["status"] = json!({ "connected": true, "observedGeneration": 1 });
+            state
+                .instances
+                .lock()
+                .unwrap()
+                .insert("instdbcustom".to_string(), inst_val);
+
+            let mut ns_val = mock_namespace_val_with_spec_name(
+                "nsdbcustom",
+                "instdbcustom",
+                Some("my-custom-ns-name"),
+            );
+            ns_val["status"] = json!({ "created": true, "observedGeneration": 1 });
+            state
+                .namespaces
+                .lock()
+                .unwrap()
+                .insert("nsdbcustom".to_string(), ns_val);
+
+            let db_val = mock_database_val_with_spec_name(
+                "dbdbcustom",
+                "nsdbcustom",
+                "schemadbcustom",
+                Some("my-custom-db-name"),
+            );
+            state
+                .databases
+                .lock()
+                .unwrap()
+                .insert("dbdbcustom".to_string(), db_val);
+
+            let api: Api<Database> = Api::namespaced(client.clone(), "test-ns");
+            let db = api.get("dbdbcustom").await.unwrap();
+            let result = database::reconcile(Arc::new(db), ctx.clone()).await;
+            assert!(result.is_ok());
+
+            let updated_map = state.databases.lock().unwrap();
+            let updated_db = updated_map.get("dbdbcustom").unwrap();
+            let status = updated_db.get("status").expect("status to be populated");
+            assert_eq!(status["created"].as_bool(), Some(true));
         }
     }
 
