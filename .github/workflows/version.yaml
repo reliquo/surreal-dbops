@@ -1,0 +1,146 @@
+name: Version
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Type of semantic version bump'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  bump:
+    name: Calculate and Bump Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.RELIQUO_CI_CLIENT_ID }}
+          private-key: ${{ secrets.RELIQUO_CI_PRIVATE_KEY }}
+          owner: "reliquo"
+          repositories: "surreal-dbops"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Calculate next version (auto dry run)
+        id: semantic_dry
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.bump_type == 'auto'
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry: true
+
+      - name: Calculate next version (manual/auto combined)
+        id: calc_version
+        run: |
+          BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ -z "$BUMP_TYPE" ]; then
+            BUMP_TYPE="auto"
+          fi
+
+          if [ "$BUMP_TYPE" = "auto" ]; then
+            NEW_VERSION="${{ steps.semantic_dry.outputs.version }}"
+          else
+            # Fetch all tags so we can describe the latest
+            git fetch --tags
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            VERSION_NUM=${LATEST_TAG#v}
+            IFS='.' read -r major minor patch <<< "$VERSION_NUM"
+            if [ -z "$major" ]; then major=0; fi
+            if [ -z "$minor" ]; then minor=0; fi
+            if [ -z "$patch" ]; then patch=0; fi
+
+            if [ "$BUMP_TYPE" = "major" ]; then
+              NEW_VERSION="$((major + 1)).0.0"
+            elif [ "$BUMP_TYPE" = "minor" ]; then
+              NEW_VERSION="${major}.$((minor + 1)).0"
+            elif [ "$BUMP_TYPE" = "patch" ]; then
+              NEW_VERSION="${major}.${minor}.$((patch + 1))"
+            fi
+          fi
+
+          echo "Calculated version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version files
+        id: bump_version
+        if: steps.calc_version.outputs.version != ''
+        run: |
+          NEW_VERSION="${{ steps.calc_version.outputs.version }}"
+          echo "Bumping versions to $NEW_VERSION"
+          
+          # Bump Cargo.toml version
+          sed -i 's/^version = "[^"]*"/version = "'"$NEW_VERSION"'"/' Cargo.toml
+          cargo check
+          
+          # Bump Chart.yaml version & appVersion
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            sed -i 's/^version: .*/version: '"$NEW_VERSION"'/' charts/surreal-dbops/Chart.yaml
+            sed -i 's/^appVersion: .*/appVersion: "'"$NEW_VERSION"'"/' charts/surreal-dbops/Chart.yaml
+          fi
+          
+          # Stage changes for commit action
+          git add Cargo.toml Cargo.lock
+          if [ -f charts/surreal-dbops/Chart.yaml ]; then
+            git add charts/surreal-dbops/Chart.yaml
+          fi
+
+      - name: Commit version bumps
+        uses: dsanders11/github-app-commit-action@v2.1.0
+        if: steps.calc_version.outputs.version != ''
+        with:
+          owner: reliquo
+          repository: surreal-dbops
+          message: |
+            chore(release): bump version to ${{ steps.calc_version.outputs.version }} [skip ci]
+          token: ${{ steps.generate_token.outputs.token }}
+
+      - name: Run semantic-release (auto)
+        id: semantic
+        if: (github.event_name != 'workflow_dispatch' || github.event.inputs.bump_type == 'auto') && steps.calc_version.outputs.version != ''
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Tag and Release (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.bump_type != 'auto' && steps.calc_version.outputs.version != ''
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ steps.calc_version.outputs.version }}"
+          
+          # Configure Git user identity
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Fetch the bump commit from remote and tag it
+          git fetch origin main
+          git checkout main
+          git tag "v$NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+          gh release create "v$NEW_VERSION" --title "v$NEW_VERSION" --notes "Manual release v$NEW_VERSION"
